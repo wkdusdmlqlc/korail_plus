@@ -132,7 +132,8 @@ def srtgo(debug=False):
     ]
 
     RAIL_CHOICES = [
-        (colored("SRT 노선 (코레일+ 예매)", "red"), "SRT"),
+        # SRT는 코레일+로 통합되어 별도 선택 불필요 — 노출 중단 (KTX/코레일+ 창에서 통합 예매)
+        # (colored("SRT 노선 (코레일+ 예매)", "red"), "SRT"),
         (colored("KTX", "cyan"), "KTX"),
         ("취소", -1),
     ]
@@ -159,12 +160,15 @@ def srtgo(debug=False):
             break
 
         if choice in {1, 2, 3, 6, 7}:
-            rail_type = inquirer.list_input(
-                message="열차 선택 (↕:이동, Enter: 선택, Ctrl-C: 취소)",
-                choices=RAIL_CHOICES,
-            )
-            if rail_type in {-1, None}:
-                continue
+            # SRT는 코레일+로 통합되어 열차 선택이 불필요 -> KTX(코레일+)로 고정.
+            # (예전처럼 다시 선택지를 두려면 아래 주석을 해제하고 RAIL_CHOICES를 사용)
+            # rail_type = inquirer.list_input(
+            #     message="열차 선택 (↕:이동, Enter: 선택, Ctrl-C: 취소)",
+            #     choices=RAIL_CHOICES,
+            # )
+            # if rail_type in {-1, None}:
+            #     continue
+            rail_type = "KTX"
         else:
             rail_type = None
 

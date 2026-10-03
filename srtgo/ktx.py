@@ -56,7 +56,7 @@ class DynaPathMasterEngine:
     AS_VALUE = "%5B38ff229cb34c7dda8e28220a2d750cce%5D"
     DEVICE_MODEL = "SM-S928N"
     OS_TYPE = "Android"
-    SDK_VERSION = "v1"
+    SDK_VERSION = "v1.0.3"  # 코레일톡 7.0.8: DynaPath SDK v1 -> v1.0.3
 
     def __init__(self):
         self.TABLE = "3FE9jgRD4KdCyuawklqGJYmvfMn15P7US8XbxeLQtWT6OicBAopINs2Vh0HZrz"
@@ -147,12 +147,13 @@ class DynaPathMasterEngine:
         return "".join(sb)
 
     def generate_token(self, device_id, ts, rand):
+        # 코레일톡 7.0.8 (DynaPath v1.0.3): 최초 생성 시 rt(요청 간격 배열) 필드는 생략된다.
         plaintext = (
             f"ai={self.APP_ID}&di={device_id}&as={self.AS_VALUE}&"
             f"su=false&dbg=false&emu=false&hk=false&it={self.app_start_ts}&"
-            f"ts={ts}&rt=0&os=13&dm={self.DEVICE_MODEL}&st={self.OS_TYPE}&sv={self.SDK_VERSION}"
+            f"ts={ts}&os=13&dm={self.DEVICE_MODEL}&st={self.OS_TYPE}&sv={self.SDK_VERSION}"
         )
-        dyn_key = f"v1+{rand}+{ts}"
+        dyn_key = f"{self.SDK_VERSION}+{rand}+{ts}"
         key_enc = self.encode_normal_be(dyn_key, self.TABLE, self.I8, self.I9, self.I10)
         big_key = self.make_key(dyn_key)
         custom_table = self.make_encode_table(big_key, self.I9, self.TABLE)
@@ -196,6 +197,12 @@ class Schedule:
         self.arr_time = data.get("h_arv_tm")
 
         self.run_date = data.get("h_run_dt")
+
+        # 코레일톡 7.0.8 예약 필수: 역 편성/운행 순서 (예약 요청의 txtDptStnConsOrdr1 등)
+        self.dep_stn_cons_ordr = data.get("h_dpt_stn_cons_ordr", "000000")
+        self.dep_stn_run_ordr = data.get("h_dpt_stn_run_ordr", "000000")
+        self.arr_stn_cons_ordr = data.get("h_arv_stn_cons_ordr", "000000")
+        self.arr_stn_run_ordr = data.get("h_arv_stn_run_ordr", "000000")
 
     def __repr__(self):
         dep_time = f"{self.dep_time[:2]}:{self.dep_time[2:4]}"
@@ -405,14 +412,17 @@ class Passenger:
 
     def get_dict(self, index):
         index = str(index)
-        return {
+        d = {
+            f"txtCompaCnt{index}": self.count,
             f"txtPsgTpCd{index}": self.typecode,
             f"txtDiscKndCd{index}": self.discount_type,
-            f"txtCompaCnt{index}": self.count,
-            f"txtCardCode_{index}": self.card,
-            f"txtCardNo_{index}": self.card_no,
-            f"txtCardPw_{index}": self.card_pw,
         }
+        # 할인카드 필드는 값이 있을 때만 포함(코레일톡 7.0.8은 빈 필드를 보내지 않음)
+        if self.card:
+            d[f"txtCardCode_{index}"] = self.card
+            d[f"txtCardNo_{index}"] = self.card_no
+            d[f"txtCardPw_{index}"] = self.card_pw
+        return d
 
 
 class AdultPassenger(Passenger):
@@ -625,13 +635,40 @@ class NetFunnelHelper:
         )
 
 
+def _get_persistent_device_id():
+    """실기기 android_id처럼 설치별로 고유하고 고정된 16자리 hex 디바이스 ID.
+
+    모든 srtgo 사용자가 동일한 값을 쓰면 DynaPath 서버의 디바이스 블록리스트에
+    쉽게 걸리므로, 설치마다 한 번 생성해 파일에 보관한다.
+    """
+    import os
+
+    config_dir = os.path.join(os.path.expanduser("~"), ".config", "srtgo")
+    path = os.path.join(config_dir, "device_id")
+    try:
+        with open(path, "r") as f:
+            did = f.read().strip()
+        if len(did) == 16 and all(c in string.hexdigits for c in did):
+            return did
+    except OSError:
+        pass
+    did = "".join(random.choices("0123456789abcdef", k=16))
+    try:
+        os.makedirs(config_dir, exist_ok=True)
+        with open(path, "w") as f:
+            f.write(did)
+    except OSError:
+        pass
+    return did
+
+
 class Korail:
     """Main Korail API interface"""
 
     _sid_key = b"2485dd54d9deaa36"
-    _device_id = "558a4f02041657ea"
 
     def __init__(self, korail_id, korail_pw, auto_login=True, verbose=False):
+        self._device_id = _get_persistent_device_id()
         if HAS_CURL_CFFI:
             self._session = curl_cffi.Session()
         else:
@@ -640,7 +677,9 @@ class Korail:
         self._netfunnel = NetFunnelHelper()
         self._engine = DynaPathMasterEngine()
         self._device = "AD"
-        self._version = "250601002"
+        self._version = "250601003"  # 코레일톡 7.0.8 API 계약 버전 (구 250601002)
+        self._app_version = "7.0.8"  # CommonIn.AppVersion
+        # lang(CommonIn.lang)은 앱 내부값이 보호돼 있어 추측하지 않고 생략한다.
         self._key = "korail1234567890"
         self._idx = None
         self.korail_id = korail_id
@@ -668,7 +707,12 @@ class Korail:
         sid = None
         if any(path in url for path in DYNAPATH_PATHS):
             ts = int(time.time() * 1000)
-            rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+            # DynaPath v1.0.3: 4자리 난수는 대소문자+숫자(base62)에서 추출
+            rand = "".join(
+                random.choices(
+                    string.ascii_lowercase + string.ascii_uppercase + string.digits, k=4
+                )
+            )
             token = self._engine.generate_token(self._device_id, ts, rand)
             headers["x-dynapath-m-token"] = token
             sid = self._generate_sid(ts)
@@ -676,7 +720,19 @@ class Korail:
 
     def __enc_password(self, password):
         url = API_ENDPOINTS["code"]
-        data = {"code": "app.login.cphd"}
+        # 코레일톡 7.0.8: cphd(비번 암호화 키) 요청에도 공통 파라미터 + 화면/OS 정보를
+        # 함께 보내야 올바른 세션 바인딩 키를 받는다. (공통 파라미터 누락 시 엉뚱한 키 ->
+        # 비번 복호화 불일치 -> S034)
+        data = {
+            "Device": self._device,
+            "Version": self._version,
+            "AppVersion": self._app_version,
+            "Key": self._key,
+            "code": "app.login.cphd",
+            "deviceWidth": "1440",
+            "deviceHeight": "3120",
+            "OSVersion": "37",
+        }
         r = self._session.post(url, data=data)
         j = json.loads(r.text)
 
@@ -687,16 +743,32 @@ class Korail:
             iv = key[:16].encode("utf-8")
             cipher = AES.new(encrypt_key, AES.MODE_CBC, iv)
             padded_data = pad(password.encode("utf-8"), AES.block_size)
-            return base64.b64encode(
-                base64.b64encode(cipher.encrypt(padded_data))
-            ).decode("utf-8")
+            # 코레일톡 7.0.8 비번 인코딩 = 이중 Base64.
+            #  1) inner: AESCrypto.encrypt -> 표준 Base64 NO_WRAP (AESCrypto.java flag 2)
+            #  2) outer: LoginRepositoryImpl -> Android Base64 URL_SAFE (NO_WRAP 아님:
+            #     76자마다 '\n' 줄바꿈 + 끝에 '\n')
+            inner = base64.b64encode(cipher.encrypt(padded_data)).decode("ascii")
+            b64 = base64.urlsafe_b64encode(inner.encode("ascii")).decode("ascii")
+            wrapped = "\n".join(b64[i : i + 76] for i in range(0, len(b64), 76))
+            return wrapped + "\n"
         return False
+
+    def _check_service(self):
+        # 코레일톡 7.0.8 로그인 1단계: 예매 서비스 상태 확인. 세션 쿠키가 이후 cphd/로그인
+        # 키 바인딩에 필요할 수 있어 로그인 직전에 호출한다. (공통 파라미터 없이 호출)
+        url = "https://smart.letskorail.com:443/file/CACHE/MobileService.cache"
+        try:
+            self._session.post(url, data={"timeStamp": str(int(time.time() * 1000))})
+        except Exception as e:
+            self._log(f"check_service failed (ignored): {e}")
 
     def login(self, korail_id=None, korail_pw=None):
         if korail_id:
             self.korail_id = korail_id
         if korail_pw:
             self.korail_pw = korail_pw
+
+        self._check_service()
 
         txt_input_flg = (
             "5"
@@ -709,16 +781,21 @@ class Korail:
         url = API_ENDPOINTS["login"]
         headers, sid = self._get_auth_headers_and_sid(url)
 
+        # 코레일톡 7.0.8: LoginIn(CommonIn) 직렬화 후 FieldMap 변환 시 빈 문자열 필드는
+        # 생략된다. 실제 전송 필드 = Device,Version,AppVersion,Key,lang,txtInputFlg,
+        # txtMemberNo,txtPwd,checkValidPw,idx (custId/etrPath는 빈값이라 생략).
         data = {
             "Device": self._device,
             "Version": self._version,
+            "AppVersion": self._app_version,
+            "Key": self._key,
+            "txtInputFlg": txt_input_flg,
             "txtMemberNo": self.korail_id,
             "txtPwd": self.__enc_password(self.korail_pw),
-            "txtInputFlg": txt_input_flg,
+            "checkValidPw": "Y",
             "idx": self._idx,
         }
-        if sid:
-            data["Sid"] = sid
+        # 코레일톡 7.0.8: 로그인 요청에 'Sid' 필드는 존재하지 않는다(과거 잔재). 전송하지 않음.
 
         r = self._session.post(url, data=data, headers=headers)
         self._log(r.text)
@@ -790,9 +867,13 @@ class Korail:
         url = API_ENDPOINTS["search_schedule"]
         headers, sid = self._get_auth_headers_and_sid(url)
 
+        # 코레일톡 7.0.8 ScheduleView 필드(라이브 검증): 공통부에 AppVersion/Key 추가,
+        # qryDvCd(조회 구분, 직통="1") 신규 필수. txtGoStart/End는 역 "이름".
         data = {
             "Device": self._device,
             "Version": self._version,
+            "AppVersion": self._app_version,
+            "Key": self._key,
             "txtMenuId": "11",
             "radJobId": "1",
             "selGoTrain": train_type,
@@ -814,9 +895,10 @@ class Korail:
             "rtYn": "N",  # 왕복
             "adjStnScdlOfrFlg": "N",  # 인접역 보기
             "mbCrdNo": self.membership_number,
+            "qryDvCd": "1",  # 조회 구분 코드(직통)
         }
 
-        r = self._session.post(url, params=data, headers=headers)
+        r = self._session.post(url, data=data, headers=headers)
         self._log(r.text)
         j = json.loads(r.text)
 
@@ -861,52 +943,52 @@ class Korail:
         passengers = Passenger.reduce(passengers)
         cnt = sum(p.count for p in passengers)
 
+        # 코레일톡 7.0.8 TicketReservation(라이브 검증): 공통부 AppVersion 추가,
+        # 여정에 역 편성/운행 순서(ConsOrdr/RunOrdr) 필수, 미사용 2번째 여정 필드는 생략.
         data = {
             "Device": self._device,
             "Version": self._version,
+            "AppVersion": self._app_version,
             "Key": self._key,
             "txtMenuId": "11",
             "txtJobId": "1101" if reserving_seat else "1102",
-            "txtGdNo": "",
             "hidFreeFlg": "N",
+            "txtStndFlg": "N",
             "txtTotPsgCnt": cnt,
             "txtSeatAttCd1": "000",
             "txtSeatAttCd2": "000",
             "txtSeatAttCd3": "000",
             "txtSeatAttCd4": "015",
             "txtSeatAttCd5": "000",
-            "txtStndFlg": "N",
-            "txtSrcarCnt": "0",
             "txtJrnyCnt": "1",
-            "txtJrnySqno1": "001",
-            "txtJrnyTpCd1": "11",
-            "txtDptDt1": train.dep_date,
-            "txtDptRsStnCd1": train.dep_code,
-            "txtDptTm1": train.dep_time,
-            "txtArvRsStnCd1": train.arr_code,
-            "txtTrnNo1": train.train_no,
-            "txtRunDt1": train.run_date,
-            "txtTrnClsfCd1": train.train_type,
-            "txtTrnGpCd1": train.train_group,
-            "txtPsrmClCd1": "2" if is_special_seat else "1",
-            "txtChgFlg1": "",
-            "txtJrnySqno2": "",
-            "txtJrnyTpCd2": "",
-            "txtDptDt2": "",
-            "txtDptRsStnCd2": "",
-            "txtDptTm2": "",
-            "txtArvRsStnCd2": "",
-            "txtTrnNo2": "",
-            "txtRunDt2": "",
-            "txtTrnClsfCd2": "",
-            "txtPsrmClCd2": "",
-            "txtChgFlg2": "",
+            "txtSrcarCnt": "0",
         }
 
         for i, psg in enumerate(passengers, 1):
             data.update(psg.get_dict(i))
 
-        r = self._session.get(url, params=data, headers=headers)
+        data.update(
+            {
+                "txtJrnyTpCd1": "11",
+                "txtJrnySqno1": "001",
+                "txtTrnNo1": train.train_no,
+                "txtTrnClsfCd1": train.train_type,
+                "txtTrnGpCd1": train.train_group,
+                "txtRunDt1": train.run_date,
+                "txtDptDt1": train.dep_date,
+                "txtDptTm1": train.dep_time,
+                "txtDptRsStnCd1": train.dep_code,
+                "txtDptStnConsOrdr1": train.dep_stn_cons_ordr,
+                "txtDptStnRunOrdr1": train.dep_stn_run_ordr,
+                "txtArvRsStnCd1": train.arr_code,
+                "txtArvStnConsOrdr1": train.arr_stn_cons_ordr,
+                "txtArvStnRunOrdr1": train.arr_stn_run_ordr,
+                "txtChgFlg1": "N",
+                "txtPsrmClCd1": "2" if is_special_seat else "1",
+            }
+        )
+
+        r = self._session.post(url, data=data, headers=headers)
         self._log(r.text)
         j = json.loads(r.text)
         if self._result_check(j):
