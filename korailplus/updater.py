@@ -14,11 +14,43 @@ import os
 import re
 import threading
 
-# 공개 저장소의 raw ktx.py (main 브랜치)
-RAW_URL = "https://raw.githubusercontent.com/wkdusdmlqlc/korail_plus/main/korailplus/ktx.py"
+# 공개 저장소의 raw (main 브랜치)
+RAW_BASE = "https://raw.githubusercontent.com/wkdusdmlqlc/korail_plus/main/korailplus"
+RAW_URL = f"{RAW_BASE}/ktx.py"
+RAW_SIG_URL = f"{RAW_BASE}/ktx.py.sig"
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 BUNDLED = os.path.join(_HERE, "ktx.py")
+PUBKEY_FILE = os.path.join(_HERE, "update_pubkey.txt")  # 번들된 신뢰 앵커(APK에 포함)
+
+
+def _load_pubkey():
+    """번들된 Ed25519 공개키(PEM). 없으면 None(서명 검증 비활성)."""
+    try:
+        with open(PUBKEY_FILE, encoding="utf-8") as f:
+            pem = f.read().strip()
+        return pem or None
+    except OSError:
+        return None
+
+
+def _verify(data_bytes, sig_b64):
+    """pycryptodome Ed25519로 서명 검증. 공개키 없으면 True(검증 생략)."""
+    pem = _load_pubkey()
+    if not pem:
+        return True  # 서명 체계 미설정 단계 — 버전만으로 동작
+    try:
+        import base64
+
+        from Crypto.PublicKey import ECC
+        from Crypto.Signature import eddsa
+
+        key = ECC.import_key(pem)
+        verifier = eddsa.new(key, "rfc8032")
+        verifier.verify(data_bytes, base64.b64decode(sig_b64))
+        return True
+    except Exception:
+        return False
 
 
 def _cfg_dir():
@@ -66,6 +98,11 @@ def ensure_latest(timeout=8):
         current = max(_version_of_file(BUNDLED), _version_of_file(CACHE))
         if remote_ver <= current:
             return
+        # 서명 검증: 공개키가 번들돼 있으면 서명이 맞아야만 적용(변조 차단)
+        if _load_pubkey() is not None:
+            sig = requests.get(RAW_SIG_URL, timeout=timeout)
+            if sig.status_code != 200 or not _verify(r.content, sig.text.strip()):
+                return  # 서명 없음/불일치 → 거부(기존 버전 유지)
         # 안전장치: 문법 검증 후에만 캐시
         compile(src, "ktx_hotpatch", "exec")
         tmp = CACHE + ".tmp"

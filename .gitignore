@@ -166,3 +166,7 @@ cython_debug/
 # Buildozer/안드로이드 빌드 산출물
 .buildozer/
 bin/
+
+# 핫패치 서명 개인키(절대 커밋 금지)
+*.pem
+signing_key*
