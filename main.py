@@ -225,12 +225,94 @@ def _save(path, data):
         pass
 
 
+# ---------- Android Keystore 기반 암호화 저장 (로그인/카드) ----------
+_KS_ALIAS = "korailplus_secret_v1"
+
+
+def _ks_key():
+    from jnius import autoclass
+    KeyStore = autoclass("java.security.KeyStore")
+    ks = KeyStore.getInstance("AndroidKeyStore")
+    ks.load(None)
+    if ks.containsAlias(_KS_ALIAS):
+        return ks.getKey(_KS_ALIAS, None)
+    KeyProperties = autoclass("android.security.keystore.KeyProperties")
+    Builder = autoclass("android.security.keystore.KeyGenParameterSpec$Builder")
+    b = Builder(_KS_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+    b.setBlockModes([KeyProperties.BLOCK_MODE_GCM])
+    b.setEncryptionPaddings([KeyProperties.ENCRYPTION_PADDING_NONE])
+    b.setKeySize(256)
+    KeyGenerator = autoclass("javax.crypto.KeyGenerator")
+    kg = KeyGenerator.getInstance("AES", "AndroidKeyStore")
+    kg.init(b.build())
+    return kg.generateKey()
+
+
+def _ks_encrypt(text):
+    """평문 -> base64(ivlen|iv|ct). Keystore 불가 시 None."""
+    try:
+        import base64
+        from jnius import autoclass
+        Cipher = autoclass("javax.crypto.Cipher")
+        c = Cipher.getInstance("AES/GCM/NoPadding")
+        c.init(1, _ks_key())  # ENCRYPT_MODE
+        iv = bytes([x & 0xFF for x in c.getIV()])
+        ct = bytes([x & 0xFF for x in c.doFinal(text.encode("utf-8"))])
+        return base64.b64encode(bytes([len(iv)]) + iv + ct).decode("ascii")
+    except Exception:
+        return None
+
+
+def _ks_decrypt(b64):
+    try:
+        import base64
+        from jnius import autoclass
+        raw = base64.b64decode(b64)
+        ivlen = raw[0]
+        iv, ct = raw[1:1 + ivlen], raw[1 + ivlen:]
+        Cipher = autoclass("javax.crypto.Cipher")
+        GCMParameterSpec = autoclass("javax.crypto.spec.GCMParameterSpec")
+        c = Cipher.getInstance("AES/GCM/NoPadding")
+        c.init(2, _ks_key(), GCMParameterSpec(128, iv))  # DECRYPT_MODE
+        return bytes([x & 0xFF for x in c.doFinal(ct)]).decode("utf-8")
+    except Exception:
+        return None
+
+
+def secure_save(path, d):
+    raw = json.dumps(d)
+    enc = _ks_encrypt(raw)
+    try:
+        with open(path, "w") as f:
+            f.write("KS1:" + enc if enc else "PLAIN:" + raw)
+    except OSError:
+        pass
+
+
+def secure_load(path, default):
+    try:
+        with open(path) as f:
+            s = f.read()
+    except OSError:
+        return default
+    try:
+        if s.startswith("KS1:"):
+            dec = _ks_decrypt(s[4:])
+            return json.loads(dec) if dec else default
+        if s.startswith("PLAIN:"):
+            return json.loads(s[6:])
+        return json.loads(s)  # 레거시 평문 자동 마이그레이션
+    except (ValueError, TypeError):
+        return default
+
+
 def load_creds():
-    return _load(CRED_PATH, {})
+    return secure_load(CRED_PATH, {})
 
 
 def save_creds(d):
-    _save(CRED_PATH, d)
+    secure_save(CRED_PATH, d)
 
 
 def load_settings():
@@ -260,11 +342,11 @@ CARD_PATH = os.path.join(_cfg_dir(), "card.json")
 
 
 def load_card():
-    return _load(CARD_PATH, {"number": "", "password": "", "birthday": "", "expire": ""})
+    return secure_load(CARD_PATH, {"number": "", "password": "", "birthday": "", "expire": ""})
 
 
 def save_card(d):
-    _save(CARD_PATH, d)
+    secure_save(CARD_PATH, d)
 
 
 def pay_reservation(rail, rsv):
