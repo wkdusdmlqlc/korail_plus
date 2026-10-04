@@ -15,7 +15,9 @@ version = 0.1.0
 
 # curl_cffi는 안드로이드 빌드 레시피가 없어 제외 -> ktx.py의 requests 폴백 사용.
 # keyring/inquirer/click/prompt_toolkit/telegram(CLI 전용)은 앱에 불필요.
-requirements = python3,kivy==2.3.0,pycryptodome,requests,urllib3,idna,charset-normalizer,certifi,plyer,pyjnius,android
+requirements = python3,kivy,pycryptodome,requests,urllib3,idna,charset-normalizer,certifi,plyer,pyjnius,android
+# 최신 Python/NDK 타깃 호환 수정이 포함된 python-for-android develop 브랜치 사용
+p4a.branch = develop
 
 orientation = portrait
 fullscreen = 0
