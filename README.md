@@ -34,7 +34,7 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-이후 세션마다 `source .venv/bin/activate` 후 `srtgo` 실행.
+이후 세션마다 `source .venv/bin/activate` 후 `korailplus` 실행.
 
 ### Linux/WSL 키체인 백엔드 (필요 시)
 
@@ -54,7 +54,7 @@ pip install keyrings.alt
 ## 사용법
 
 ```bash
-srtgo
+korailplus
 ```
 
 ### 메뉴 구성
@@ -104,7 +104,7 @@ srtgo
 ## 변경사항 (코레일+ 7.0.8 대응)
 
 - **DynaPath 토큰(`x-dynapath-m-token`)**: SDK v1 → **v1.0.3** 알고리즘 반영 (sv, dynkey 접두사, base62 난수, rt 처리)
-- **디바이스 ID**: 설치별 고유 android_id 생성·보관(`~/.config/srtgo/device_id`) — 공유 값 블록리스트 회피
+- **디바이스 ID**: 설치별 고유 android_id 생성·보관(`~/.config/korailplus/device_id`) — 공유 값 블록리스트 회피
 - **API Version**: `250601002` → `250601003`
 - **로그인**: 비밀번호 이중 Base64(내부 표준 + 외부 URL-safe) 인코딩, `checkValidPw`/`AppVersion`/`Key` 등 7.0.8 필드 반영, cphd 키 요청에 공통 파라미터 + 서비스 사전 체크 추가
 - **조회(ScheduleView)**: `AppVersion`/`Key`/`qryDvCd` 필드 추가

@@ -3,11 +3,11 @@ requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "srtgo"
+name = "korailplus"
 authors = [
     {name = "DKim", email = "lapis42@gmail.com"},
 ]
-description = "SRTgo: K-Train Reservation Helper"
+description = "korail+ : K-Train(KTX) Reservation Helper"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT License"}
@@ -29,7 +29,7 @@ dynamic = ["version"]
 [tool.setuptools_scm]
 
 [project.urls]
-Homepage = "https://github.com/junddao/srtgo_plus"
+Homepage = "https://github.com/wkdusdmlqlc/korail_plus"
 
 [project.scripts]
-srtgo = "srtgo.srtgo:srtgo"
+korailplus = "korailplus.cli:main"

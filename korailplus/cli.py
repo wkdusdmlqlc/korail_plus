@@ -118,7 +118,7 @@ ChoiceType = Union[int, None]
 
 @click.command()
 @click.option("--debug", is_flag=True, help="Debug mode")
-def srtgo(debug=False):
+def main(debug=False):
     MENU_CHOICES = [
         ("예매 시작", 1),
         ("예매 확인/결제/취소", 2),
@@ -156,7 +156,7 @@ def srtgo(debug=False):
 
         if choice == -1:
             from importlib.metadata import version
-            print(f"\n{version('srtgo')} made by dion")
+            print(f"\n{version('korailplus')} made by dion")
             break
 
         if choice in {1, 2, 3, 6, 7}:
@@ -310,7 +310,7 @@ def set_telegram() -> bool:
         keyring.set_password("telegram", "token", token)
         keyring.set_password("telegram", "chat_id", chat_id)
         tgprintf = get_telegram()
-        asyncio.run(tgprintf("[SRTGO] 텔레그램 설정 완료"))
+        asyncio.run(tgprintf("[korail+] 텔레그램 설정 완료"))
         return True
     except Exception as err:
         print(err)
@@ -894,4 +894,4 @@ def check_reservation(rail_type="SRT", debug=False):
 
 
 if __name__ == "__main__":
-    srtgo()
+    main()

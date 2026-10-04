@@ -2,7 +2,7 @@
 실제 터미널에서 실행:  python login_test.py
 아이디/비밀번호는 getpass로 입력받아 화면·로그에 남지 않습니다."""
 import getpass
-from srtgo.ktx import Korail
+from korailplus.ktx import Korail
 
 korail_id = input("코레일 아이디(멤버십번호/이메일/휴대폰): ").strip()
 korail_pw = getpass.getpass("비밀번호: ")

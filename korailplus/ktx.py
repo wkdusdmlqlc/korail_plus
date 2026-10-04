@@ -638,12 +638,12 @@ class NetFunnelHelper:
 def _get_persistent_device_id():
     """실기기 android_id처럼 설치별로 고유하고 고정된 16자리 hex 디바이스 ID.
 
-    모든 srtgo 사용자가 동일한 값을 쓰면 DynaPath 서버의 디바이스 블록리스트에
+    모든 사용자가 동일한 값을 쓰면 DynaPath 서버의 디바이스 블록리스트에
     쉽게 걸리므로, 설치마다 한 번 생성해 파일에 보관한다.
     """
     import os
 
-    config_dir = os.path.join(os.path.expanduser("~"), ".config", "srtgo")
+    config_dir = os.path.join(os.path.expanduser("~"), ".config", "korailplus")
     path = os.path.join(config_dir, "device_id")
     try:
         with open(path, "r") as f:
