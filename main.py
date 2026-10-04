@@ -700,30 +700,42 @@ class SettingsScreen(Base):
         self.autopay = pick("사용" if s.get("auto_pay") == "Y" else "사용 안 함",
                             ["사용 안 함", "사용"])
         root.add_widget(self.autopay)
-        root.add_widget(label("알림 방법", color=MUTED, size_hint_y=None, height=dp(22),
-                              halign="left", text_size=(Window.width - dp(40), None)))
-        rev = {"telegram": "텔레그램", "android": "안드로이드 알림", "both": "둘 다"}
-        self.notify = pick(rev.get(s.get("notify", "telegram"), "텔레그램"),
-                           ["텔레그램", "안드로이드 알림", "둘 다"])
-        root.add_widget(self.notify)
         root.add_widget(label("재시도 간격(초)", color=MUTED, size_hint_y=None, height=dp(22),
                               halign="left", text_size=(Window.width - dp(40), None)))
         self.interval = field("3", text=str(s.get("interval", "3")))
         root.add_widget(self.interval)
-        root.add_widget(label("텔레그램 봇 토큰", color=MUTED, size_hint_y=None, height=dp(22),
+        root.add_widget(label("알림 방법", color=MUTED, size_hint_y=None, height=dp(22),
                               halign="left", text_size=(Window.width - dp(40), None)))
+        rev = {"telegram": "텔레그램", "android": "안드로이드 알림", "both": "텔레그램"}
+        self.notify = pick(rev.get(s.get("notify", "telegram"), "텔레그램"),
+                           ["텔레그램", "안드로이드 알림"])
+        self.notify.bind(text=lambda *a: self._toggle_tg())
+        root.add_widget(self.notify)
+        # 텔레그램 입력(토큰/chat_id) — 텔레그램 선택 시에만 표시
+        self.tgbox = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(12))
+        self.tgbox.add_widget(label("텔레그램 봇 토큰", color=MUTED, size_hint_y=None, height=dp(22),
+                                    halign="left", text_size=(Window.width - dp(40), None)))
         self.tok = field("bot token", text=s.get("tg_token", ""))
-        root.add_widget(self.tok)
-        root.add_widget(label("텔레그램 chat_id", color=MUTED, size_hint_y=None, height=dp(22),
-                              halign="left", text_size=(Window.width - dp(40), None)))
+        self.tgbox.add_widget(self.tok)
+        self.tgbox.add_widget(label("텔레그램 chat_id", color=MUTED, size_hint_y=None, height=dp(22),
+                                    halign="left", text_size=(Window.width - dp(40), None)))
         self.chat = field("chat id", text=s.get("tg_chat", ""))
-        root.add_widget(self.chat)
+        self.tgbox.add_widget(self.chat)
+        self._TG_H = dp(22 + 52 + 22 + 52 + 12 * 3)
+        root.add_widget(self.tgbox)
         root.add_widget(button("저장", self.save))
         root.add_widget(Label())
         self.add_widget(root)
+        self._toggle_tg()
+
+    def _toggle_tg(self):
+        show = self.notify.text == "텔레그램"
+        self.tgbox.height = self._TG_H if show else 0
+        self.tgbox.opacity = 1 if show else 0
+        self.tgbox.disabled = not show
 
     def save(self):
-        m = {"텔레그램": "telegram", "안드로이드 알림": "android", "둘 다": "both"}
+        m = {"텔레그램": "telegram", "안드로이드 알림": "android"}
         save_settings({"notify": m.get(self.notify.text, "telegram"),
                        "interval": self.interval.text.strip() or "3",
                        "tg_token": self.tok.text.strip(), "tg_chat": self.chat.text.strip(),
