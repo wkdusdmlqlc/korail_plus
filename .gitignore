@@ -170,3 +170,6 @@ bin/
 # 핫패치 서명 개인키(절대 커밋 금지)
 *.pem
 signing_key*
+
+# buildozer.spec은 추적 (위의 *.spec 무시에서 예외)
+!buildozer.spec
