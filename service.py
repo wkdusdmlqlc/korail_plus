@@ -15,6 +15,9 @@ from korailplus import updater as _updater
 _K = _updater.load_ktx()
 AdultPassenger = _K.AdultPassenger
 ChildPassenger = _K.ChildPassenger
+SeniorPassenger = _K.SeniorPassenger
+Disability1To3Passenger = _K.Disability1To3Passenger
+Disability4To6Passenger = _K.Disability4To6Passenger
 Korail = _K.Korail
 NoResultsError = _K.NoResultsError
 ReserveOption = _K.ReserveOption
@@ -93,6 +96,12 @@ def _passengers(task):
     ps = [AdultPassenger(int(task.get("adult", 1)))]
     if int(task.get("child", 0)) > 0:
         ps.append(ChildPassenger(int(task["child"])))
+    if int(task.get("senior", 0)) > 0:
+        ps.append(SeniorPassenger(int(task["senior"])))
+    if int(task.get("dis13", 0)) > 0:
+        ps.append(Disability1To3Passenger(int(task["dis13"])))
+    if int(task.get("dis46", 0)) > 0:
+        ps.append(Disability4To6Passenger(int(task["dis46"])))
     return ps
 
 
@@ -137,8 +146,19 @@ def main():
                 try:
                     rsv = rail.reserve(train, passengers=passengers, option=option)
                     if rsv:
-                        _write_status("done", f"예매 성공: {rsv}")
-                        _notify(task, "🎉 korail+ 예매 성공", str(rsv))
+                        paid = False
+                        card = task.get("card")
+                        if task.get("auto_pay") == "Y" and card and card.get("number"):
+                            try:
+                                bday = card.get("birthday", "")
+                                paid = rail.pay_with_card(
+                                    rsv, card["number"], card["password"], bday,
+                                    card["expire"], 0, "J" if len(bday) == 6 else "S")
+                            except Exception:  # noqa
+                                paid = False
+                        title = "🎉 korail+ 예매+결제 완료" if paid else "🎉 korail+ 예매 성공"
+                        _write_status("done", ("결제 완료: " if paid else "예매 성공: ") + str(rsv))
+                        _notify(task, title, str(rsv))
                         return
                 except SoldOutError:
                     continue

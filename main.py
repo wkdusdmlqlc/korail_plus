@@ -51,6 +51,9 @@ from korailplus import updater as _updater
 _K = _updater.load_ktx()
 AdultPassenger = _K.AdultPassenger
 ChildPassenger = _K.ChildPassenger
+SeniorPassenger = _K.SeniorPassenger
+Disability1To3Passenger = _K.Disability1To3Passenger
+Disability4To6Passenger = _K.Disability4To6Passenger
 Korail = _K.Korail
 KorailError = _K.KorailError
 ReserveOption = _K.ReserveOption
@@ -220,11 +223,35 @@ def save_creds(d):
 
 
 def load_settings():
-    return _load(SETTINGS_PATH, {"notify": "telegram", "tg_token": "", "tg_chat": "", "interval": "3"})
+    return _load(SETTINGS_PATH, {"notify": "telegram", "tg_token": "", "tg_chat": "",
+                                 "interval": "3", "auto_pay": "N"})
 
 
 def save_settings(d):
     _save(SETTINGS_PATH, d)
+
+
+CARD_PATH = os.path.join(_cfg_dir(), "card.json")
+
+
+def load_card():
+    return _load(CARD_PATH, {"number": "", "password": "", "birthday": "", "expire": ""})
+
+
+def save_card(d):
+    _save(CARD_PATH, d)
+
+
+def pay_reservation(rail, rsv):
+    """저장된 카드로 예약 결제. 카드 정보 없으면 False."""
+    c = load_card()
+    if not c.get("number"):
+        return False
+    bday = c.get("birthday", "")
+    return rail.pay_with_card(
+        rsv, c["number"], c["password"], bday, c["expire"], 0,
+        "J" if len(bday) == 6 else "S",
+    )
 
 
 def write_task(task):
@@ -379,7 +406,7 @@ class LoginScreen(Base):
             save_creds({"id": kid, "pass": pw})
             App.get_running_app().rail = rail
             self.toast(f"{getattr(rail, 'name', '')} 님 환영합니다")
-            self.manager.go("search")
+            self.manager.go("menu")
         else:
             self.toast(f"로그인 실패: {err or '정보를 확인하세요'}")
 
@@ -409,35 +436,46 @@ class SearchScreen(Base):
         card.size_hint_y = None
         root.add_widget(card)
 
-        prow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(10))
-        prow.add_widget(label("성인", color=MUTED, size_hint_x=None, width=dp(36)))
-        self.adult = pick("1", [str(i) for i in range(1, 7)], width=64)
+        cnts = [str(i) for i in range(0, 10)]
+        prow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+        prow.add_widget(label("성인", color=MUTED, size_hint_x=None, width=dp(32)))
+        self.adult = pick("1", [str(i) for i in range(1, 10)], width=58)
         prow.add_widget(self.adult)
-        prow.add_widget(label("아동", color=MUTED, size_hint_x=None, width=dp(36)))
-        self.child = pick("0", [str(i) for i in range(0, 7)], width=64)
+        prow.add_widget(label("아동", color=MUTED, size_hint_x=None, width=dp(32)))
+        self.child = pick("0", cnts, width=58)
         prow.add_widget(self.child)
+        prow.add_widget(label("경로", color=MUTED, size_hint_x=None, width=dp(32)))
+        self.senior = pick("0", cnts, width=58)
+        prow.add_widget(self.senior)
         root.add_widget(prow)
+        prow2 = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+        prow2.add_widget(label("중증장애", color=MUTED, size_hint_x=None, width=dp(56)))
+        self.dis13 = pick("0", cnts, width=58)
+        prow2.add_widget(self.dis13)
+        prow2.add_widget(label("경증장애", color=MUTED, size_hint_x=None, width=dp(56)))
+        self.dis46 = pick("0", cnts, width=58)
+        prow2.add_widget(self.dis46)
+        prow2.add_widget(Label())
+        root.add_widget(prow2)
         self.seat = pick("일반실 우선", list(SEAT_OPTIONS))
         root.add_widget(self.seat)
 
         self.btn = button("조회하기", self.do_search)
         root.add_widget(self.btn)
-        brow = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(10))
-        brow.add_widget(button("알림 설정", lambda: self.manager.go("settings"), "ghost", 46))
-        brow.add_widget(button("진행 상태", lambda: self.manager.go("status"), "ghost", 46))
-        brow.add_widget(button("로그아웃", self.logout, "ghost", 46))
-        root.add_widget(brow)
+        root.add_widget(button("← 메뉴", lambda: self.manager.go("menu", "right"), "ghost", 46))
         root.add_widget(Label())
         self.add_widget(root)
-
-    def logout(self):
-        App.get_running_app().rail = None
-        self.manager.go("login", "right")
 
     def _passengers(self):
         ps = [AdultPassenger(int(self.adult.text))]
         if int(self.child.text) > 0:
             ps.append(ChildPassenger(int(self.child.text)))
+        if int(self.senior.text) > 0:
+            ps.append(SeniorPassenger(int(self.senior.text)))
+        if int(self.dis13.text) > 0:
+            ps.append(Disability1To3Passenger(int(self.dis13.text)))
+        if int(self.dis46.text) > 0:
+            ps.append(Disability4To6Passenger(int(self.dis46.text)))
         return ps
 
     def do_search(self):
@@ -451,6 +489,8 @@ class SearchScreen(Base):
                       date=self.date_in.text.strip(),
                       time=self.time_in.text.strip() or None,
                       adult=int(self.adult.text), child=int(self.child.text),
+                      senior=int(self.senior.text), dis13=int(self.dis13.text),
+                      dis46=int(self.dis46.text),
                       passengers=self._passengers())
         threading.Thread(target=self._work, args=(app.rail, params), daemon=True).start()
 
@@ -541,7 +581,17 @@ class ResultsScreen(Base):
         try:
             rsv = app.rail.reserve(train, passengers=self._params["passengers"],
                                    option=self._option)
-            msg = f"예매 성공! {rsv}" if rsv else "예매 실패"
+            if rsv:
+                msg = f"예매 성공! {rsv}"
+                # 자동 결제 옵션 + 카드 등록 시 바로 결제
+                if load_settings().get("auto_pay") == "Y" and load_card().get("number"):
+                    try:
+                        if pay_reservation(app.rail, rsv):
+                            msg = "💳 예매+결제 완료!"
+                    except Exception:  # noqa
+                        msg += " (자동결제 실패 — 예매확인에서 결제하세요)"
+            else:
+                msg = "예매 실패"
         except SoldOutError:
             msg = "매진되었습니다"
         except KorailError as e:
@@ -560,15 +610,21 @@ class ResultsScreen(Base):
     def _retry(self, trains):
         s = load_settings()
         creds = load_creds()
+        card = load_card()
         task = {
             "id": creds.get("id"), "pass": creds.get("pass"),
             "dep": self._params["dep"], "arr": self._params["arr"],
             "date": self._params["date"], "time": self._params["time"],
             "adult": self._params.get("adult", 1), "child": self._params.get("child", 0),
+            "senior": self._params.get("senior", 0), "dis13": self._params.get("dis13", 0),
+            "dis46": self._params.get("dis46", 0),
             "option": self._option,  # ReserveOption 값 == 문자열
             "train_nos": [t.train_no for t in trains],
             "interval": s.get("interval", "3"), "notify": s.get("notify", "telegram"),
             "tg_token": s.get("tg_token", ""), "tg_chat": s.get("tg_chat", ""),
+            # 자동 결제 (카드 등록 시)
+            "auto_pay": s.get("auto_pay", "N"),
+            "card": card if card.get("number") else None,
         }
         write_task(task)
         started = start_retry_service()
@@ -582,10 +638,15 @@ class SettingsScreen(Base):
         s = load_settings()
         root = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(12))
         head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
-        head.add_widget(button("←", lambda: self.manager.go("search", "right"), "ghost", 44))
+        head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
         head.add_widget(label("[b]알림 설정[/b]", color=TXT, size="18sp", halign="left",
                               valign="middle"))
         root.add_widget(head)
+        root.add_widget(label("예매 성공 시 자동 결제", color=MUTED, size_hint_y=None, height=dp(22),
+                              halign="left", text_size=(Window.width - dp(40), None)))
+        self.autopay = pick("사용" if s.get("auto_pay") == "Y" else "사용 안 함",
+                            ["사용 안 함", "사용"])
+        root.add_widget(self.autopay)
         root.add_widget(label("알림 방법", color=MUTED, size_hint_y=None, height=dp(22),
                               halign="left", text_size=(Window.width - dp(40), None)))
         rev = {"telegram": "텔레그램", "android": "안드로이드 알림", "both": "둘 다"}
@@ -612,9 +673,10 @@ class SettingsScreen(Base):
         m = {"텔레그램": "telegram", "안드로이드 알림": "android", "둘 다": "both"}
         save_settings({"notify": m.get(self.notify.text, "telegram"),
                        "interval": self.interval.text.strip() or "3",
-                       "tg_token": self.tok.text.strip(), "tg_chat": self.chat.text.strip()})
+                       "tg_token": self.tok.text.strip(), "tg_chat": self.chat.text.strip(),
+                       "auto_pay": "Y" if self.autopay.text == "사용" else "N"})
         self.toast("설정이 저장되었습니다")
-        self.manager.go("search", "right")
+        self.manager.go("menu", "right")
 
 
 class StatusScreen(Base):
@@ -669,6 +731,196 @@ class StatusScreen(Base):
             self._ev = None
 
 
+class MenuScreen(Base):
+    """로그인 후 허브 — TUI 메뉴 대응."""
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        root = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(12))
+        root.add_widget(header("korail+", "메뉴"))
+        self.hello = label("", color=MUTED, size="13sp", halign="left",
+                           size_hint_y=None, height=dp(22),
+                           text_size=(Window.width - dp(40), None))
+        root.add_widget(self.hello)
+        items = [
+            ("🚆  예매 시작", lambda: self.manager.go("search")),
+            ("🎫  예매 확인 / 결제 / 취소", lambda: self._open_reservations()),
+            ("💳  카드 설정", lambda: self.manager.go("card")),
+            ("🔔  알림 설정", lambda: self.manager.go("settings")),
+            ("📈  진행 상태", lambda: self.manager.go("status")),
+        ]
+        for text, cb in items:
+            b = button(text, cb, "ghost", 56)
+            b.halign = "left"
+            b.text_size = (Window.width - dp(72), None)
+            b.padding_x = dp(18)
+            root.add_widget(b)
+        root.add_widget(Label())
+        root.add_widget(button("로그아웃", self.logout, "ghost", 46))
+        self.add_widget(root)
+
+    def on_pre_enter(self, *a):
+        rail = App.get_running_app().rail
+        self.hello.text = f"{getattr(rail, 'name', '')} 님" if rail else ""
+
+    def _open_reservations(self):
+        self.manager.get_screen("reservations").refresh()
+        self.manager.go("reservations")
+
+    def logout(self):
+        App.get_running_app().rail = None
+        self.manager.go("login", "right")
+
+
+class ReservationsScreen(Base):
+    """예매 확인 / 결제 / 취소 / 환불."""
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
+        head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
+        head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
+        head.add_widget(label("[b]예매 확인[/b]", color=TXT, size="18sp", halign="left",
+                              valign="middle"))
+        head.add_widget(button("새로고침", self.refresh, "ghost", 44))
+        root.add_widget(head)
+        sv = ScrollView()
+        self.list = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10),
+                              padding=[0, dp(6)])
+        self.list.bind(minimum_height=self.list.setter("height"))
+        sv.add_widget(self.list)
+        root.add_widget(sv)
+        self.add_widget(root)
+
+    def refresh(self, *_):
+        self.list.clear_widgets()
+        self.list.add_widget(label("불러오는 중…", color=MUTED, size_hint_y=None, height=dp(40)))
+        threading.Thread(target=self._load, daemon=True).start()
+
+    def _load(self):
+        rail = App.get_running_app().rail
+        try:
+            reservations = rail.reservations() or []
+            tickets = rail.tickets() or []
+            err = None
+        except Exception as e:  # noqa
+            reservations, tickets, err = [], [], str(e)
+        self._render(reservations, tickets, err)
+
+    @mainthread
+    def _render(self, reservations, tickets, err):
+        self.list.clear_widgets()
+        if err:
+            self.list.add_widget(label(f"오류: {err}", color=MUTED, size_hint_y=None, height=dp(40)))
+            return
+        if not reservations and not tickets:
+            self.list.add_widget(label("예매 내역이 없습니다", color=MUTED,
+                                       size_hint_y=None, height=dp(40)))
+            return
+        for t in tickets:  # 발권 완료 → 환불
+            self._card(str(t), [("환불", lambda x=t: self._refund(x), (0.8, 0.26, 0.26, 1))])
+        for r in reservations:  # 미결제 → 결제/취소
+            waiting = getattr(r, "is_waiting", False)
+            actions = []
+            if not waiting:
+                actions.append(("결제", lambda x=r: self._pay(x), PRIMARY))
+            actions.append(("취소", lambda x=r: self._cancel(x), (0.5, 0.3, 0.3, 1)))
+            self._card(str(r) + ("  (예약대기)" if waiting else ""), actions)
+
+    def _card(self, text, actions):
+        card = Factory.Card()
+        card.size_hint_y = None
+        card.height = dp(96)
+        card.add_widget(label(text, size="13sp", halign="left", valign="top",
+                              size_hint_y=None, height=dp(52),
+                              text_size=(Window.width - dp(64), None)))
+        row = BoxLayout(size_hint_y=None, height=dp(34), spacing=dp(8))
+        row.add_widget(Label())
+        for name, cb, color in actions:
+            b = button(name, cb, "primary", 34)
+            b.bg = color
+            b.font_size = "14sp"
+            b.size_hint_x = None
+            b.width = dp(90)
+            row.add_widget(b)
+        card.add_widget(row)
+        self.list.add_widget(card)
+
+    def _pay(self, rsv):
+        if not load_card().get("number"):
+            self.toast("먼저 카드를 등록하세요")
+            self.manager.go("card")
+            return
+        self.toast("결제 중…")
+        threading.Thread(target=self._pay_worker, args=(rsv,), daemon=True).start()
+
+    def _pay_worker(self, rsv):
+        rail = App.get_running_app().rail
+        try:
+            ok = pay_reservation(rail, rsv)
+            self._after("💳 결제 성공" if ok else "결제 실패")
+        except Exception as e:  # noqa
+            self._after(f"결제 오류: {e}")
+
+    def _cancel(self, rsv):
+        self.toast("취소 중…")
+        threading.Thread(target=self._cancel_worker, args=(rsv,), daemon=True).start()
+
+    def _cancel_worker(self, rsv):
+        rail = App.get_running_app().rail
+        try:
+            rail.cancel(rsv)
+            self._after("예약 취소됨")
+        except Exception as e:  # noqa
+            self._after(f"취소 오류: {e}")
+
+    def _refund(self, ticket):
+        self.toast("환불 중…")
+        threading.Thread(target=self._refund_worker, args=(ticket,), daemon=True).start()
+
+    def _refund_worker(self, ticket):
+        rail = App.get_running_app().rail
+        try:
+            rail.refund(ticket)
+            self._after("환불 완료")
+        except Exception as e:  # noqa
+            self._after(f"환불 오류: {e}")
+
+    @mainthread
+    def _after(self, msg):
+        self.toast(msg)
+        self.refresh()
+
+
+class CardScreen(Base):
+    """카드 설정 — 자동 결제용."""
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        c = load_card()
+        root = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(12))
+        head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
+        head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
+        head.add_widget(label("[b]카드 설정[/b]", color=TXT, size="18sp", halign="left",
+                              valign="middle"))
+        root.add_widget(head)
+        root.add_widget(label("자동 결제에 사용됩니다. 기기에만 저장됩니다.", color=MUTED,
+                              size_hint_y=None, height=dp(22), halign="left",
+                              text_size=(Window.width - dp(40), None)))
+        self.num = field("카드번호 (하이픈 제외)", text=c.get("number", ""))
+        self.pw = field("카드 비밀번호 앞 2자리", password=True, text=c.get("password", ""))
+        self.bday = field("생년월일 YYMMDD / 사업자번호", text=c.get("birthday", ""))
+        self.exp = field("유효기간 YYMM", text=c.get("expire", ""))
+        for w in (self.num, self.pw, self.bday, self.exp):
+            root.add_widget(w)
+        root.add_widget(button("저장", self.save))
+        root.add_widget(Label())
+        self.add_widget(root)
+
+    def save(self):
+        save_card({"number": self.num.text.strip(), "password": self.pw.text.strip(),
+                   "birthday": self.bday.text.strip(), "expire": self.exp.text.strip()})
+        self.toast("카드 정보 저장됨")
+        self.manager.go("menu", "right")
+
+
 class Manager(ScreenManager):
     def go(self, name, direction="left"):
         self.transition = SlideTransition(direction=direction, duration=0.22)
@@ -699,8 +951,11 @@ class KorailPlusApp(App):
         self.title = "korail+"
         sm = Manager()
         sm.add_widget(LoginScreen(name="login"))
+        sm.add_widget(MenuScreen(name="menu"))
         sm.add_widget(SearchScreen(name="search"))
         sm.add_widget(ResultsScreen(name="results"))
+        sm.add_widget(ReservationsScreen(name="reservations"))
+        sm.add_widget(CardScreen(name="card"))
         sm.add_widget(SettingsScreen(name="settings"))
         sm.add_widget(StatusScreen(name="status"))
         sm.current = "login"  # 항상 로그인 화면으로 시작
