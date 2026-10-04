@@ -703,6 +703,7 @@ class KorailPlusApp(App):
         sm.add_widget(ResultsScreen(name="results"))
         sm.add_widget(SettingsScreen(name="settings"))
         sm.add_widget(StatusScreen(name="status"))
+        sm.current = "login"  # 항상 로그인 화면으로 시작
         return sm
 
 
