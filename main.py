@@ -541,6 +541,11 @@ class SearchScreen(Base):
         root.add_widget(prow2)
         self.seat = pick("일반실 우선", list(SEAT_OPTIONS))
         root.add_widget(self.seat)
+        irow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+        irow.add_widget(label("재시도 간격(초)", color=MUTED, size_hint_x=None, width=dp(110)))
+        self.interval = pick("3", ["1", "2", "3", "5", "10", "30"])
+        irow.add_widget(self.interval)
+        root.add_widget(irow)
 
         self.btn = button("조회하기", self.do_search)
         root.add_widget(self.btn)
@@ -580,7 +585,7 @@ class SearchScreen(Base):
                       time=f"{self.hh.text}{self.mm.text}{self.ss.text}",
                       adult=int(self.adult.text), child=int(self.child.text),
                       senior=int(self.senior.text), dis13=int(self.dis13.text),
-                      dis46=int(self.dis46.text),
+                      dis46=int(self.dis46.text), interval=self.interval.text,
                       passengers=self._passengers())
         threading.Thread(target=self._work, args=(app.rail, params), daemon=True).start()
 
@@ -712,7 +717,7 @@ class ResultsScreen(Base):
             "dis46": self._params.get("dis46", 0),
             "option": self._option,  # ReserveOption 값 == 문자열
             "train_nos": [t.train_no for t in trains],
-            "interval": s.get("interval", "3"), "notify": s.get("notify", "telegram"),
+            "interval": self._params.get("interval", "3"), "notify": s.get("notify", "telegram"),
             "tg_token": s.get("tg_token", ""), "tg_chat": s.get("tg_chat", ""),
             # 자동 결제 (카드 등록 시)
             "auto_pay": s.get("auto_pay", "N"),
@@ -739,10 +744,6 @@ class SettingsScreen(Base):
         self.autopay = pick("사용" if s.get("auto_pay") == "Y" else "사용 안 함",
                             ["사용 안 함", "사용"])
         root.add_widget(self.autopay)
-        root.add_widget(label("재시도 간격(초)", color=MUTED, size_hint_y=None, height=dp(22),
-                              halign="left", text_size=(Window.width - dp(40), None)))
-        self.interval = field("3", text=str(s.get("interval", "3")))
-        root.add_widget(self.interval)
         root.add_widget(label("알림 방법", color=MUTED, size_hint_y=None, height=dp(22),
                               halign="left", text_size=(Window.width - dp(40), None)))
         rev = {"telegram": "텔레그램", "android": "안드로이드 알림", "both": "텔레그램"}
@@ -776,7 +777,6 @@ class SettingsScreen(Base):
     def save(self):
         m = {"텔레그램": "telegram", "안드로이드 알림": "android"}
         save_settings({"notify": m.get(self.notify.text, "telegram"),
-                       "interval": self.interval.text.strip() or "3",
                        "tg_token": self.tok.text.strip(), "tg_chat": self.chat.text.strip(),
                        "auto_pay": "Y" if self.autopay.text == "사용" else "N"})
         self.toast("설정이 저장되었습니다")
@@ -851,7 +851,6 @@ class MenuScreen(Base):
             ("💳  카드 설정", lambda: self.manager.go("card")),
             ("🚉  역 설정", lambda: self.manager.go("station")),
             ("🔔  알림 설정", lambda: self.manager.go("settings")),
-            ("📈  진행 상태", lambda: self.manager.go("status")),
         ]
         for text, cb in items:
             b = button(text, cb, "ghost", 56)
