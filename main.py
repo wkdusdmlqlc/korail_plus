@@ -1054,14 +1054,15 @@ class StationScreen(Base):
         root.add_widget(head)
         addrow = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(8))
         self.new = field("추가할 역 이름 (예: 수서)")
+        self.new.bind(on_text_validate=lambda *_: self._add())  # 엔터로도 추가
         addrow.add_widget(self.new)
         b = button("추가", self._add, "primary", 52)
         b.size_hint_x = None
         b.width = dp(80)
         addrow.add_widget(b)
         root.add_widget(addrow)
-        root.add_widget(label("등록된 역 (삭제하려면 ✕)", color=MUTED, size_hint_y=None,
-                              height=dp(22), halign="left",
+        root.add_widget(label("등록된 역 (오른쪽 '삭제' 버튼으로 제거)", color=MUTED,
+                              size_hint_y=None, height=dp(22), halign="left",
                               text_size=(Window.width - dp(32), None)))
         sv = ScrollView()
         self.list = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(6),
@@ -1082,9 +1083,10 @@ class StationScreen(Base):
             r = BoxLayout(spacing=dp(8))
             r.add_widget(label(s, size="15sp", halign="left", valign="middle",
                                text_size=(Window.width - dp(120), None)))
-            x = button("✕", lambda name=s: self._remove(name), "ghost", 36)
+            x = button("삭제", lambda name=s: self._remove(name), "ghost", 40)
             x.size_hint_x = None
-            x.width = dp(50)
+            x.width = dp(72)
+            x.font_size = "14sp"
             r.add_widget(x)
             rowc.add_widget(r)
             self.list.add_widget(rowc)
@@ -1095,9 +1097,11 @@ class StationScreen(Base):
             return
         stns = load_stations()
         if name not in stns:
-            stns.append(name)
+            stns.insert(0, name)  # 맨 위에 추가 → 바로 보이게
             save_stations(stns)
             self.toast(f"'{name}' 추가됨")
+        else:
+            self.toast(f"'{name}' 은 이미 있습니다")
         self.new.text = ""
         self._render()
 
