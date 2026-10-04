@@ -547,7 +547,8 @@ class SearchScreen(Base):
         irow.add_widget(self.interval)
         root.add_widget(irow)
         arow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
-        arow.add_widget(label("예매 성공 시 자동결제", color=MUTED, size_hint_x=None, width=dp(150)))
+        self.autopay_lbl = label("예매 성공 시 자동결제", color=MUTED, size_hint_x=None, width=dp(150))
+        arow.add_widget(self.autopay_lbl)
         self.autopay = pick("사용" if load_settings().get("auto_pay") == "Y" else "사용 안 함",
                             ["사용 안 함", "사용"])
         arow.add_widget(self.autopay)
@@ -558,6 +559,15 @@ class SearchScreen(Base):
         root.add_widget(button("← 메뉴", lambda: self.manager.go("menu", "right"), "ghost", 46))
         root.add_widget(Label())
         self.add_widget(root)
+
+    def on_pre_enter(self, *a):
+        # 카드 미등록 시 자동결제 비활성화
+        has_card = bool(load_card().get("number"))
+        self.autopay.disabled = not has_card
+        if not has_card:
+            self.autopay.text = "사용 안 함"
+        self.autopay_lbl.text = ("예매 성공 시 자동결제" if has_card
+                                 else "자동결제 (카드 등록 필요)")
 
     def _set_dep(self, name):
         self._dep = name
