@@ -86,7 +86,7 @@ KV = """
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [self.radius]
+            radius: [dp(16), dp(16), dp(16), dp(16)]
 
 <GhostButton@ButtonBehavior+Label>:
     radius: dp(14)
@@ -101,11 +101,11 @@ KV = """
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [self.radius]
+            radius: [dp(16), dp(16), dp(16), dp(16)]
         Color:
             rgba: 0.25, 0.27, 0.31, 1
         Line:
-            rounded_rectangle: (self.x, self.y, self.width, self.height, self.radius)
+            rounded_rectangle: (self.x, self.y, self.width, self.height, dp(16))
             width: 1
 
 <Card@BoxLayout>:
@@ -120,7 +120,7 @@ KV = """
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [self.radius]
+            radius: [dp(16), dp(16), dp(16), dp(16)]
 
 <Field@TextInput>:
     multiline: False
