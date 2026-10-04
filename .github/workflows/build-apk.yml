@@ -16,6 +16,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost \
+            /usr/local/lib/android/sdk/ndk /usr/local/graalvm \
+            /usr/share/swift /usr/local/.ghcup 2>/dev/null || true
+          df -h / | tail -1
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
