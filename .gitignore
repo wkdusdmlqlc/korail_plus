@@ -162,3 +162,7 @@ cython_debug/
 # Korail 앱 APK (저작권/대용량 — 저장소에 포함하지 않음)
 *.apk
 *.xapk
+
+# Buildozer/안드로이드 빌드 산출물
+.buildozer/
+bin/

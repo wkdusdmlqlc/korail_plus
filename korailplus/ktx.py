@@ -25,6 +25,10 @@ from datetime import datetime, timedelta
 from functools import reduce
 
 
+# 핫패치(자동 업데이트) 버전 표식 — 코레일 API 변경 대응 시 이 값을 올리면
+# 앱이 GitHub raw에서 새 ktx.py를 받아 재설치 없이 반영한다. 형식: YYYYMMDD[NN]
+__version__ = "20261004"
+
 # Constants
 EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
 PHONE_NUMBER_REGEX = re.compile(r"(\d{3})-(\d{3,4})-(\d{4})")
