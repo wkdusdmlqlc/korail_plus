@@ -675,6 +675,7 @@ class Manager(ScreenManager):
         self.current = name
 
     def toast(self, msg):
+        # ScreenManager는 Screen만 받으므로 토스트는 Window에 오버레이로 올린다.
         from kivy.graphics import Color, RoundedRectangle
         lbl = Label(text=msg, color=(1, 1, 1, 1), font_size="14sp",
                     size_hint=(None, None), halign="center", valign="middle",
@@ -684,11 +685,11 @@ class Manager(ScreenManager):
         lbl.size = (Window.width * 0.9, max(dp(44), lbl.texture_size[1] + dp(20)))
         with lbl.canvas.before:
             Color(0.05, 0.05, 0.06, 0.95)
-            rr = RoundedRectangle(radius=[dp(12)])
+            rr = RoundedRectangle(radius=[dp(12), dp(12), dp(12), dp(12)])
         lbl.bind(pos=lambda w, *_: setattr(rr, "pos", w.pos),
                  size=lambda w, *_: setattr(rr, "size", w.size))
-        self.add_widget(lbl)
-        Clock.schedule_once(lambda *_: self.remove_widget(lbl), 2.6)
+        Window.add_widget(lbl)
+        Clock.schedule_once(lambda *_: Window.remove_widget(lbl), 2.6)
 
 
 class KorailPlusApp(App):
