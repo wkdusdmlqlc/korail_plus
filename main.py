@@ -5,17 +5,35 @@ korailplus/ktx.py 코어를 재사용. 자동 재시도는 service.py(Foreground
 """
 import json
 import os
+import sys
 import threading
+import traceback
+
+# 시작 크래시를 파일로 남겨 진단 가능하게 (앱 저장소)
+def _log_crash(exc_type, exc, tb):
+    try:
+        p = os.path.join(os.path.expanduser("~"), ".config", "korailplus")
+        os.makedirs(p, exist_ok=True)
+        with open(os.path.join(p, "crash.log"), "w") as f:
+            f.write("".join(traceback.format_exception(exc_type, exc, tb)))
+    except Exception:
+        pass
+    sys.__excepthook__(exc_type, exc, tb)
+
+sys.excepthook = _log_crash
 
 # --- 한글 폰트를 Kivy 기본 폰트("Roboto") 이름으로 등록 → 모든 위젯에 적용 ---
 from kivy.core.text import LabelBase
 
-_FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
-_REG = os.path.join(_FONT_DIR, "NanumGothic-Regular.ttf")
-_BOLD = os.path.join(_FONT_DIR, "NanumGothic-Bold.ttf")
-if os.path.exists(_REG):
-    LabelBase.register(name="Roboto", fn_regular=_REG,
-                       fn_bold=_BOLD if os.path.exists(_BOLD) else _REG)
+try:
+    _FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
+    _REG = os.path.join(_FONT_DIR, "NanumGothic-Regular.ttf")
+    _BOLD = os.path.join(_FONT_DIR, "NanumGothic-Bold.ttf")
+    if os.path.exists(_REG):
+        LabelBase.register(name="Roboto", fn_regular=_REG,
+                           fn_bold=_BOLD if os.path.exists(_BOLD) else _REG)
+except Exception:
+    pass  # 폰트 등록 실패해도 앱은 계속(한글은 기본 폰트로)
 
 from kivy.app import App
 from kivy.clock import Clock, mainthread

@@ -5,7 +5,7 @@ package.domain = org.korailplus
 
 # main.py(GUI) + service.py(백그라운드 재시도) + korailplus 패키지 포함
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,json
+source.include_exts = py,png,jpg,kv,atlas,json,ttf,txt,sig
 source.include_patterns = korailplus/*.py
 # 빌드/개발 산출물 제외
 source.exclude_dirs = tests, bin, .buildozer, .venv, .git, .github, tools, __pycache__

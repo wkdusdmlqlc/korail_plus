@@ -120,10 +120,21 @@ def check_async():
 
 
 def load_ktx():
-    """현재 활성 ktx 모듈을 로드해 반환. 시작 시 즉시 로드 + 백그라운드 업데이트."""
-    path = _active_path()
-    spec = importlib.util.spec_from_file_location("korailplus_ktx_live", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    check_async()
+    """현재 활성 ktx 모듈을 로드해 반환. 시작 시 즉시 로드 + 백그라운드 업데이트.
+
+    안드로이드에서 앱 코드가 zip 번들이면 파일 기반 로드가 실패할 수 있으므로,
+    실패 시 번들 모듈(korailplus.ktx)을 정상 import로 폴백해 크래시를 방지한다.
+    """
+    mod = None
+    try:
+        path = _active_path()
+        spec = importlib.util.spec_from_file_location("korailplus_ktx_live", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception:
+        from korailplus import ktx as mod  # 폴백: 번들 모듈 직접 import
+    try:
+        check_async()
+    except Exception:
+        pass
     return mod
