@@ -41,6 +41,7 @@ from kivy.core.window import Window
 from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.checkbox import CheckBox
 from kivy.uix.label import Label
 from kivy.uix.screenmanager import Screen, ScreenManager, SlideTransition
 from kivy.uix.scrollview import ScrollView
@@ -393,10 +394,26 @@ class LoginScreen(Base):
         self.pw_in = field("비밀번호", password=True, text=creds.get("pass", ""))
         root.add_widget(self.id_in)
         root.add_widget(self.pw_in)
+        arow = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
+        self.auto = CheckBox(active=(creds.get("auto") == "Y"), size_hint_x=None,
+                             width=dp(40), color=ACCENT)
+        arow.add_widget(self.auto)
+        arow.add_widget(label("아이디·비밀번호 저장 / 자동 로그인", color=MUTED, halign="left",
+                              valign="middle", text_size=(Window.width - dp(110), None)))
+        root.add_widget(arow)
         self.btn = button("로그인", self.do_login)
         root.add_widget(self.btn)
         root.add_widget(Label())
         self.add_widget(root)
+
+    def on_enter(self, *a):
+        # 자동 로그인: 저장된 계정 + 자동로그인 체크 시 1회 자동 시도
+        creds = load_creds()
+        if (not getattr(self, "_auto_tried", False) and creds.get("auto") == "Y"
+                and creds.get("id") and creds.get("pass")
+                and not App.get_running_app().rail):
+            self._auto_tried = True
+            self.do_login()
 
     def do_login(self):
         kid, pw = self.id_in.text.strip(), self.pw_in.text
@@ -419,7 +436,10 @@ class LoginScreen(Base):
         self.btn.text = "로그인"
         self.btn.disabled = False
         if ok:
-            save_creds({"id": kid, "pass": pw})
+            if self.auto.active:
+                save_creds({"id": kid, "pass": pw, "auto": "Y"})
+            else:
+                save_creds({})  # 저장 안 함
             App.get_running_app().rail = rail
             self.toast(f"{getattr(rail, 'name', '')} 님 환영합니다")
             self.manager.go("menu")
@@ -463,12 +483,6 @@ class SearchScreen(Base):
         card.size_hint_y = None
         root.add_widget(card)
 
-    def on_pre_enter(self, *a):
-        # 역 목록이 바뀌었을 수 있으니 갱신
-        stns = load_stations()
-        self.dep.values = stns
-        self.arr.values = stns
-
         cnts = [str(i) for i in range(0, 10)]
         prow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
         prow.add_widget(label("성인", color=MUTED, size_hint_x=None, width=dp(32)))
@@ -498,6 +512,12 @@ class SearchScreen(Base):
         root.add_widget(button("← 메뉴", lambda: self.manager.go("menu", "right"), "ghost", 46))
         root.add_widget(Label())
         self.add_widget(root)
+
+    def on_pre_enter(self, *a):
+        # 역 목록이 바뀌었을 수 있으니 갱신
+        stns = load_stations()
+        self.dep.values = stns
+        self.arr.values = stns
 
     def _passengers(self):
         ps = [AdultPassenger(int(self.adult.text))]
