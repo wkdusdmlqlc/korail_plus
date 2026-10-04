@@ -29,8 +29,11 @@ android.permissions = INTERNET, ACCESS_NETWORK_STATE, FOREGROUND_SERVICE, FOREGR
 android.api = 34
 android.minapi = 24
 android.ndk_api = 24
+android.build_tools = 34.0.0
 android.archs = arm64-v8a, armeabi-v7a
 android.wakelock = True
+# CI에서 SDK 라이선스 자동 수락 (미수락 시 build-tools/aidl 설치 실패)
+android.accept_sdk_license = True
 
 # 화면 꺼짐/백그라운드에서도 네트워크 유지
 android.allow_backup = True
