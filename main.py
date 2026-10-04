@@ -61,9 +61,11 @@ SoldOutError = _K.SoldOutError
 
 Window.clearcolor = (0.055, 0.063, 0.078, 1)  # #0E1014
 
-KTX_STATIONS = ["서울", "용산", "광명", "천안아산", "오송", "대전", "동대구", "부산",
-                "울산", "포항", "마산", "진주", "여수EXPO", "목포", "광주송정",
-                "전주", "익산", "강릉", "청량리", "수원"]
+KTX_STATIONS = ["서울", "용산", "영등포", "광명", "수원", "천안아산", "오송", "대전",
+                "서대전", "김천구미", "동대구", "경주", "포항", "밀양", "구포", "부산",
+                "울산(통도사)", "마산", "창원중앙", "경산", "논산", "익산", "정읍",
+                "광주송정", "목포", "전주", "순천", "여수EXPO", "청량리", "강릉",
+                "행신", "정동진"]
 
 SEAT_OPTIONS = {
     "일반실 우선": ReserveOption.GENERAL_FIRST,
@@ -229,6 +231,20 @@ def load_settings():
 
 def save_settings(d):
     _save(SETTINGS_PATH, d)
+
+
+STATIONS_PATH = os.path.join(_cfg_dir(), "stations.json")
+
+
+def load_stations():
+    lst = _load(STATIONS_PATH, None)
+    if isinstance(lst, list) and lst:
+        return lst
+    return list(KTX_STATIONS)
+
+
+def save_stations(lst):
+    _save(STATIONS_PATH, lst)
 
 
 CARD_PATH = os.path.join(_cfg_dir(), "card.json")
@@ -419,22 +435,39 @@ class SearchScreen(Base):
         root = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(14))
         root.add_widget(header("열차 조회", "코레일+ · KTX"))
 
+        stns = load_stations()
         card = Factory.Card()
         row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(10))
-        self.dep = pick("서울", KTX_STATIONS)
-        self.arr = pick("부산", KTX_STATIONS)
+        self.dep = pick(stns[0] if stns else "서울", stns)
+        self.arr = pick(stns[-1] if stns else "부산", stns)
         row.add_widget(self.dep)
         row.add_widget(label("→", color=ACCENT, size="20sp", size_hint_x=None, width=dp(26)))
         row.add_widget(self.arr)
         card.add_widget(row)
         card.add_widget(Label(size_hint_y=None, height=dp(2)))
         self.date_in = field("날짜 YYYYMMDD", text=kst.strftime("%Y%m%d"))
-        self.time_in = field("시각 HHMMSS", text=kst.strftime("%H0000"))
         card.add_widget(self.date_in)
-        card.add_widget(self.time_in)
-        card.height = dp(48 + 2 + 52 + 52 + 16 * 2 + 6 * 3)
+        # 시간: 시 / 분 / 초 3분할
+        trow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+        self.hh = pick(kst.strftime("%H"), [f"{i:02d}" for i in range(24)])
+        self.mm = pick("00", [f"{i:02d}" for i in range(0, 60, 5)])
+        self.ss = pick("00", [f"{i:02d}" for i in range(0, 60, 10)])
+        trow.add_widget(self.hh)
+        trow.add_widget(label("시", color=MUTED, size_hint_x=None, width=dp(22)))
+        trow.add_widget(self.mm)
+        trow.add_widget(label("분", color=MUTED, size_hint_x=None, width=dp(22)))
+        trow.add_widget(self.ss)
+        trow.add_widget(label("초", color=MUTED, size_hint_x=None, width=dp(22)))
+        card.add_widget(trow)
+        card.height = dp(48 + 2 + 52 + 48 + 16 * 2 + 6 * 3)
         card.size_hint_y = None
         root.add_widget(card)
+
+    def on_pre_enter(self, *a):
+        # 역 목록이 바뀌었을 수 있으니 갱신
+        stns = load_stations()
+        self.dep.values = stns
+        self.arr.values = stns
 
         cnts = [str(i) for i in range(0, 10)]
         prow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
@@ -487,7 +520,7 @@ class SearchScreen(Base):
         self.btn.disabled = True
         params = dict(dep=self.dep.text, arr=self.arr.text,
                       date=self.date_in.text.strip(),
-                      time=self.time_in.text.strip() or None,
+                      time=f"{self.hh.text}{self.mm.text}{self.ss.text}",
                       adult=int(self.adult.text), child=int(self.child.text),
                       senior=int(self.senior.text), dis13=int(self.dis13.text),
                       dis46=int(self.dis46.text),
@@ -745,6 +778,7 @@ class MenuScreen(Base):
             ("🚆  예매 시작", lambda: self.manager.go("search")),
             ("🎫  예매 확인 / 결제 / 취소", lambda: self._open_reservations()),
             ("💳  카드 설정", lambda: self.manager.go("card")),
+            ("🚉  역 설정", lambda: self.manager.go("station")),
             ("🔔  알림 설정", lambda: self.manager.go("settings")),
             ("📈  진행 상태", lambda: self.manager.go("status")),
         ]
@@ -921,6 +955,71 @@ class CardScreen(Base):
         self.manager.go("menu", "right")
 
 
+class StationScreen(Base):
+    """역 설정 — 역 추가/삭제."""
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
+        head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
+        head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
+        head.add_widget(label("[b]역 설정[/b]", color=TXT, size="18sp", halign="left",
+                              valign="middle"))
+        root.add_widget(head)
+        addrow = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(8))
+        self.new = field("추가할 역 이름 (예: 수서)")
+        addrow.add_widget(self.new)
+        b = button("추가", self._add, "primary", 52)
+        b.size_hint_x = None
+        b.width = dp(80)
+        addrow.add_widget(b)
+        root.add_widget(addrow)
+        root.add_widget(label("등록된 역 (삭제하려면 ✕)", color=MUTED, size_hint_y=None,
+                              height=dp(22), halign="left",
+                              text_size=(Window.width - dp(32), None)))
+        sv = ScrollView()
+        self.list = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(6),
+                              padding=[0, dp(4)])
+        self.list.bind(minimum_height=self.list.setter("height"))
+        sv.add_widget(self.list)
+        root.add_widget(sv)
+        self.add_widget(root)
+        self._render()
+
+    def _render(self):
+        self.list.clear_widgets()
+        for s in load_stations():
+            rowc = Factory.Card()
+            rowc.size_hint_y = None
+            rowc.height = dp(50)
+            rowc.padding = dp(10)
+            r = BoxLayout(spacing=dp(8))
+            r.add_widget(label(s, size="15sp", halign="left", valign="middle",
+                               text_size=(Window.width - dp(120), None)))
+            x = button("✕", lambda name=s: self._remove(name), "ghost", 36)
+            x.size_hint_x = None
+            x.width = dp(50)
+            r.add_widget(x)
+            rowc.add_widget(r)
+            self.list.add_widget(rowc)
+
+    def _add(self):
+        name = self.new.text.strip()
+        if not name:
+            return
+        stns = load_stations()
+        if name not in stns:
+            stns.append(name)
+            save_stations(stns)
+            self.toast(f"'{name}' 추가됨")
+        self.new.text = ""
+        self._render()
+
+    def _remove(self, name):
+        stns = [s for s in load_stations() if s != name]
+        save_stations(stns)
+        self._render()
+
+
 class Manager(ScreenManager):
     def go(self, name, direction="left"):
         self.transition = SlideTransition(direction=direction, duration=0.22)
@@ -956,6 +1055,7 @@ class KorailPlusApp(App):
         sm.add_widget(ResultsScreen(name="results"))
         sm.add_widget(ReservationsScreen(name="reservations"))
         sm.add_widget(CardScreen(name="card"))
+        sm.add_widget(StationScreen(name="station"))
         sm.add_widget(SettingsScreen(name="settings"))
         sm.add_widget(StatusScreen(name="status"))
         sm.current = "login"  # 항상 로그인 화면으로 시작
