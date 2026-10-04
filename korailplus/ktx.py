@@ -27,7 +27,7 @@ from functools import reduce
 
 # 핫패치(자동 업데이트) 버전 표식 — 코레일 API 변경 대응 시 이 값을 올리면
 # 앱이 GitHub raw에서 새 ktx.py를 받아 재설치 없이 반영한다. 형식: YYYYMMDD[NN]
-__version__ = "20261004"
+__version__ = "20261005"
 
 # Constants
 EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
@@ -647,7 +647,8 @@ def _get_persistent_device_id():
     """
     import os
 
-    config_dir = os.path.join(os.path.expanduser("~"), ".config", "korailplus")
+    _root = os.environ.get("ANDROID_PRIVATE") or os.path.join(os.path.expanduser("~"), ".config")
+    config_dir = os.path.join(_root, "korailplus")
     path = os.path.join(config_dir, "device_id")
     try:
         with open(path, "r") as f:

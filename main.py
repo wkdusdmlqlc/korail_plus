@@ -187,12 +187,19 @@ PRIMARY = (0.0, 0.655, 0.345, 1)
 
 # ---------- 저장소/설정/서비스 제어 ----------
 def _cfg_dir():
-    base = os.path.join(os.path.expanduser("~"), ".config", "korailplus")
+    # 안드로이드: HOME 루트(/data/user/0/<pkg>)는 쓰기 불가. ANDROID_PRIVATE(files 디렉터리) 사용.
+    root = os.environ.get("ANDROID_PRIVATE") or os.path.join(os.path.expanduser("~"), ".config")
+    d = os.path.join(root, "korailplus")
     try:
-        os.makedirs(base, exist_ok=True)
+        os.makedirs(d, exist_ok=True)
+        return d
     except OSError:
-        base = os.path.expanduser("~")
-    return base
+        d = os.path.join(os.getcwd(), "korailplus_data")  # 최후 폴백(앱 files/app)
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError:
+            pass
+        return d
 
 
 CRED_PATH = os.path.join(_cfg_dir(), "credentials.json")

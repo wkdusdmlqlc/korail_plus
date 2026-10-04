@@ -23,7 +23,12 @@ NoResultsError = _K.NoResultsError
 ReserveOption = _K.ReserveOption
 SoldOutError = _K.SoldOutError
 
-CFG_DIR = os.path.join(os.path.expanduser("~"), ".config", "korailplus")
+_ROOT = os.environ.get("ANDROID_PRIVATE") or os.path.join(os.path.expanduser("~"), ".config")
+CFG_DIR = os.path.join(_ROOT, "korailplus")
+try:
+    os.makedirs(CFG_DIR, exist_ok=True)
+except OSError:
+    pass
 TASK = os.path.join(CFG_DIR, "task.json")
 STATUS = os.path.join(CFG_DIR, "status.json")
 STOP = os.path.join(CFG_DIR, "stop.flag")

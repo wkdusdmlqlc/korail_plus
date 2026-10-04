@@ -54,11 +54,12 @@ def _verify(data_bytes, sig_b64):
 
 
 def _cfg_dir():
-    base = os.path.join(os.path.expanduser("~"), ".config", "korailplus", "hotpatch")
+    root = os.environ.get("ANDROID_PRIVATE") or os.path.join(os.path.expanduser("~"), ".config")
+    base = os.path.join(root, "korailplus", "hotpatch")
     try:
         os.makedirs(base, exist_ok=True)
     except OSError:
-        base = os.path.expanduser("~")
+        base = os.getcwd()
     return base
 
 
