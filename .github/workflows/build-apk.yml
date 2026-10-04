@@ -4,34 +4,56 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:   # 수동 실행도 허용
+  workflow_dispatch:
 
 permissions:
-  contents: write   # 릴리즈에 APK 업로드
+  contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build APK (buildozer)
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          command: buildozer android debug
-          buildozer_version: stable
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            openjdk-17-jdk zip unzip autoconf libtool pkg-config \
+            zlib1g-dev libncurses-dev cmake libffi-dev libssl-dev \
+            build-essential ccache git gettext libltdl-dev
+
+      - name: Install buildozer
+        run: |
+          python -m pip install --upgrade pip
+          pip install "cython<3.0" buildozer==1.5.0
+
+      - name: Cache buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+
+      - name: Build debug APK
+        run: buildozer android debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: korailplus-apk
-          path: ${{ steps.buildozer.outputs.filename }}
+          path: bin/*.apk
 
       - name: Attach APK to Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.buildozer.outputs.filename }}
+          files: bin/*.apk
           generate_release_notes: true
