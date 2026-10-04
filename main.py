@@ -43,6 +43,7 @@ from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.checkbox import CheckBox
 from kivy.uix.label import Label
+from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen, ScreenManager, SlideTransition
 from kivy.uix.scrollview import ScrollView
 
@@ -373,6 +374,38 @@ def header(title, subtitle=None):
     return box
 
 
+def open_station_picker(on_pick):
+    """검색 가능한 역 선택 팝업."""
+    box = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(8))
+    search = Factory.Field()
+    search.hint_text = "역 이름 검색"
+    search.size_hint_y = None
+    search.height = dp(52)
+    box.add_widget(search)
+    sv = ScrollView()
+    lst = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(4))
+    lst.bind(minimum_height=lst.setter("height"))
+    sv.add_widget(lst)
+    box.add_widget(sv)
+    popup = Popup(title="역 선택", content=box, size_hint=(0.92, 0.85),
+                  title_color=TXT, separator_color=ACCENT,
+                  background_color=(0.06, 0.07, 0.09, 1))
+    stations = load_stations()
+
+    def render(flt=""):
+        lst.clear_widgets()
+        for s in stations:
+            if flt and flt not in s:
+                continue
+            b = button(s, None, "ghost", 50)
+            b.bind(on_release=lambda _, name=s: (on_pick(name), popup.dismiss()))
+            lst.add_widget(b)
+
+    search.bind(text=lambda _w, t: render(t.strip()))
+    render()
+    popup.open()
+
+
 class Base(Screen):
     def toast(self, msg):
         self.manager.toast(msg)
@@ -456,13 +489,15 @@ class SearchScreen(Base):
         root.add_widget(header("열차 조회", "코레일+ · KTX"))
 
         stns = load_stations()
+        self._dep = stns[0] if stns else "서울"
+        self._arr = stns[-1] if stns else "부산"
         card = Factory.Card()
-        row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(10))
-        self.dep = pick(stns[0] if stns else "서울", stns)
-        self.arr = pick(stns[-1] if stns else "부산", stns)
-        row.add_widget(self.dep)
+        row = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(10))
+        self.dep_btn = button(self._dep, lambda: open_station_picker(self._set_dep), "ghost", 52)
+        self.arr_btn = button(self._arr, lambda: open_station_picker(self._set_arr), "ghost", 52)
+        row.add_widget(self.dep_btn)
         row.add_widget(label("→", color=ACCENT, size="20sp", size_hint_x=None, width=dp(26)))
-        row.add_widget(self.arr)
+        row.add_widget(self.arr_btn)
         card.add_widget(row)
         card.add_widget(Label(size_hint_y=None, height=dp(2)))
         self.date_in = field("날짜 YYYYMMDD", text=kst.strftime("%Y%m%d"))
@@ -513,11 +548,13 @@ class SearchScreen(Base):
         root.add_widget(Label())
         self.add_widget(root)
 
-    def on_pre_enter(self, *a):
-        # 역 목록이 바뀌었을 수 있으니 갱신
-        stns = load_stations()
-        self.dep.values = stns
-        self.arr.values = stns
+    def _set_dep(self, name):
+        self._dep = name
+        self.dep_btn.text = name
+
+    def _set_arr(self, name):
+        self._arr = name
+        self.arr_btn.text = name
 
     def _passengers(self):
         ps = [AdultPassenger(int(self.adult.text))]
@@ -538,7 +575,7 @@ class SearchScreen(Base):
             return
         self.btn.text = "조회 중…"
         self.btn.disabled = True
-        params = dict(dep=self.dep.text, arr=self.arr.text,
+        params = dict(dep=self._dep, arr=self._arr,
                       date=self.date_in.text.strip(),
                       time=f"{self.hh.text}{self.mm.text}{self.ss.text}",
                       adult=int(self.adult.text), child=int(self.child.text),
@@ -578,14 +615,15 @@ class ResultsScreen(Base):
         head.add_widget(label("[b]조회 결과[/b]", color=TXT, size="18sp", halign="left",
                               valign="middle"))
         root.add_widget(head)
-        self.retry_all = accent_button("전체 열차로 자동 재시도 시작", self._retry_all, 48)
-        root.add_widget(self.retry_all)
         sv = ScrollView()
         self.list = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10),
                               padding=[0, dp(6)])
         self.list.bind(minimum_height=self.list.setter("height"))
         sv.add_widget(self.list)
         root.add_widget(sv)
+        # 전체 자동재시도 버튼은 하단 고정(리스트를 가리지 않도록)
+        self.retry_all = accent_button("전체 열차로 자동 재시도 시작", self._retry_all, 50)
+        root.add_widget(self.retry_all)
         self.add_widget(root)
 
     def populate(self, trains, seat_text, params):
@@ -597,28 +635,29 @@ class ResultsScreen(Base):
         for t in trains:
             card = Factory.Card()
             card.size_hint_y = None
-            card.height = dp(94)
+            card.height = dp(120)
             dep = f"{t.dep_time[:2]}:{t.dep_time[2:4]}"
             arr = f"{t.arr_time[:2]}:{t.arr_time[2:4]}"
-            top = BoxLayout(size_hint_y=None, height=dp(26))
-            top.add_widget(label(f"[b]{t.train_type_name[:3]} {t.train_no}[/b]",
-                                 size="15sp", halign="left", valign="middle",
-                                 text_size=(Window.width * 0.45, None)))
-            top.add_widget(label(f"{dep} → {arr}", color=ACCENT, size="15sp",
-                                 halign="right", valign="middle",
-                                 text_size=(Window.width * 0.4, None)))
-            card.add_widget(top)
-            sp = "특실 " + ("가능" if t.has_special_seat() else "매진")
-            gn = "일반 " + ("가능" if t.has_general_seat() else "매진")
-            card.add_widget(label(f"{t.dep_name} → {t.arr_name}    [color=8A8F97]{sp} · {gn}[/color]",
-                                  color=MUTED, size="13sp", halign="left", valign="middle",
-                                  size_hint_y=None, height=dp(22),
+            # 1줄: 열차/시각/구간
+            card.add_widget(label(
+                f"[b]{t.train_type_name[:3]} {t.train_no}[/b]   {dep}~{arr}   "
+                f"{t.dep_name}→{t.arr_name}",
+                size="14sp", halign="left", valign="middle", size_hint_y=None, height=dp(24),
+                text_size=(Window.width - dp(64), None)))
+            # 2줄: 좌석 가능 여부 (CLI와 동일) — 가능=초록, 매진=빨강
+            def mark(ok):
+                return ("[color=3CDC84]가능[/color]" if ok else "[color=E05555]매진[/color]")
+            avail = f"특실 {mark(t.has_special_seat())}   일반실 {mark(t.has_general_seat())}"
+            if getattr(t, "wait_reserve_flag", -1) is not None and t.wait_reserve_flag >= 0:
+                avail += f"   예약대기 {mark(t.has_general_waiting_list())}"
+            card.add_widget(label(avail, size="14sp", halign="left", valign="middle",
+                                  size_hint_y=None, height=dp(26),
                                   text_size=(Window.width - dp(64), None)))
-            brow = BoxLayout(size_hint_y=None, height=dp(34), spacing=dp(8))
-            brow.add_widget(Label(size_hint_x=0.4))
-            ib = button("즉시 예매", lambda tr=t: self._reserve(tr), "primary", 34)
+            brow = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(8))
+            brow.add_widget(Label(size_hint_x=0.35))
+            ib = button("즉시 예매", lambda tr=t: self._reserve(tr), "primary", 36)
             ib.font_size = "14sp"
-            rb = accent_button("재시도", lambda tr=t: self._retry([tr]), 34)
+            rb = accent_button("재시도", lambda tr=t: self._retry([tr]), 36)
             rb.font_size = "14sp"
             brow.add_widget(ib)
             brow.add_widget(rb)
