@@ -546,6 +546,12 @@ class SearchScreen(Base):
         self.interval = pick("3", ["1", "2", "3", "5", "10", "30"])
         irow.add_widget(self.interval)
         root.add_widget(irow)
+        arow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+        arow.add_widget(label("예매 성공 시 자동결제", color=MUTED, size_hint_x=None, width=dp(150)))
+        self.autopay = pick("사용" if load_settings().get("auto_pay") == "Y" else "사용 안 함",
+                            ["사용 안 함", "사용"])
+        arow.add_widget(self.autopay)
+        root.add_widget(arow)
 
         self.btn = button("조회하기", self.do_search)
         root.add_widget(self.btn)
@@ -586,6 +592,7 @@ class SearchScreen(Base):
                       adult=int(self.adult.text), child=int(self.child.text),
                       senior=int(self.senior.text), dis13=int(self.dis13.text),
                       dis46=int(self.dis46.text), interval=self.interval.text,
+                      auto_pay="Y" if self.autopay.text == "사용" else "N",
                       passengers=self._passengers())
         threading.Thread(target=self._work, args=(app.rail, params), daemon=True).start()
 
@@ -681,7 +688,7 @@ class ResultsScreen(Base):
             if rsv:
                 msg = f"예매 성공! {rsv}"
                 # 자동 결제 옵션 + 카드 등록 시 바로 결제
-                if load_settings().get("auto_pay") == "Y" and load_card().get("number"):
+                if self._params.get("auto_pay") == "Y" and load_card().get("number"):
                     try:
                         if pay_reservation(app.rail, rsv):
                             msg = "💳 예매+결제 완료!"
@@ -720,7 +727,7 @@ class ResultsScreen(Base):
             "interval": self._params.get("interval", "3"), "notify": s.get("notify", "telegram"),
             "tg_token": s.get("tg_token", ""), "tg_chat": s.get("tg_chat", ""),
             # 자동 결제 (카드 등록 시)
-            "auto_pay": s.get("auto_pay", "N"),
+            "auto_pay": self._params.get("auto_pay", "N"),
             "card": card if card.get("number") else None,
         }
         write_task(task)
