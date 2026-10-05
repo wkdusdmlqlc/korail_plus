@@ -308,18 +308,47 @@ def save_settings(d):
     _save(SETTINGS_PATH, d)
 
 
-STATIONS_PATH = os.path.join(_cfg_dir(), "stations.json")
+STATIONS_PATH = os.path.join(_cfg_dir(), "stations.json")          # 사용자 커스텀 목록
+STATION_MASTER_PATH = os.path.join(_cfg_dir(), "stations_master.json")  # 코레일 역 마스터 캐시
 
 
 def load_stations():
+    """역 목록 우선순위: 사용자 커스텀 → 코레일 마스터 캐시 → 하드코딩 폴백."""
     lst = _load(STATIONS_PATH, None)
     if isinstance(lst, list) and lst:
         return lst
+    master = _load(STATION_MASTER_PATH, None)
+    if isinstance(master, list) and master:
+        return master
     return list(KTX_STATIONS)
 
 
 def save_stations(lst):
     _save(STATIONS_PATH, lst)
+
+
+def fetch_station_master(force=False):
+    """코레일에서 전체 역 목록을 받아 캐시에 저장하고 반환. 실패 시 None.
+
+    네트워크 호출이므로 백그라운드 스레드에서 부른다. 이미 캐시가 있으면
+    force=False일 때 건너뛴다(앱 시작 지연·트래픽 방지)."""
+    if not force:
+        cached = _load(STATION_MASTER_PATH, None)
+        if isinstance(cached, list) and cached:
+            return cached
+    try:
+        names = _K.fetch_stations()
+    except Exception:
+        names = []
+    if names:
+        _save(STATION_MASTER_PATH, names)
+        return names
+    return None
+
+
+def ensure_station_master_async():
+    """역 마스터 캐시가 없으면 백그라운드로 받아 둔다."""
+    threading.Thread(target=fetch_station_master, daemon=True).start()
 
 
 CARD_PATH = os.path.join(_cfg_dir(), "card.json")
@@ -1157,6 +1186,8 @@ class StationScreen(Base):
         b.width = dp(80)
         addrow.add_widget(b)
         root.add_widget(addrow)
+        self.fetchbtn = accent_button("🔄 코레일에서 전체 역 불러오기", self._load_from_korail, 46)
+        root.add_widget(self.fetchbtn)
         root.add_widget(label("등록된 역 (오른쪽 '삭제' 버튼으로 제거)", color=MUTED,
                               size_hint_y=None, height=dp(22), halign="left",
                               text_size=(Window.width - dp(32), None)))
@@ -1206,6 +1237,26 @@ class StationScreen(Base):
         save_stations(stns)
         self._render()
 
+    def _load_from_korail(self):
+        self.fetchbtn.text = "불러오는 중…"
+        self.fetchbtn.disabled = True
+        threading.Thread(target=self._fetch_work, daemon=True).start()
+
+    def _fetch_work(self):
+        names = fetch_station_master(force=True)
+        self._fetch_done(names)
+
+    @mainthread
+    def _fetch_done(self, names):
+        self.fetchbtn.text = "🔄 코레일에서 전체 역 불러오기"
+        self.fetchbtn.disabled = False
+        if names:
+            save_stations(names)  # 커스텀 목록으로 저장 → 조회 선택창에도 반영
+            self.toast(f"코레일 역 {len(names)}개 불러옴")
+            self._render()
+        else:
+            self.toast("역 목록을 불러오지 못했습니다 (네트워크 확인)")
+
 
 class Manager(ScreenManager):
     def go(self, name, direction="left"):
@@ -1246,6 +1297,7 @@ class KorailPlusApp(App):
         sm.add_widget(SettingsScreen(name="settings"))
         sm.add_widget(StatusScreen(name="status"))
         sm.current = "login"  # 항상 로그인 화면으로 시작
+        ensure_station_master_async()  # 코레일 역 마스터 캐시 백그라운드 준비
         return sm
 
 

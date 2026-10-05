@@ -27,7 +27,7 @@ from functools import reduce
 
 # 핫패치(자동 업데이트) 버전 표식 — 코레일 API 변경 대응 시 이 값을 올리면
 # 앱이 GitHub raw에서 새 ktx.py를 받아 재설치 없이 반영한다. 형식: YYYYMMDD[NN]
-__version__ = "20261005"
+__version__ = "20261006"
 
 # Constants
 EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
@@ -163,6 +163,46 @@ class DynaPathMasterEngine:
         custom_table = self.make_encode_table(big_key, self.I9, self.TABLE)
         body_enc = self.encode_normal_be(plaintext, custom_table, self.I8, self.I9, self.I10)
         return f"bEeEP{self.TABLE[len(key_enc)]}{key_enc}{body_enc}"
+def fetch_stations(timeout=15):
+    """코레일 역 마스터 전체를 조회해 역 이름 목록을 반환(주요역 우선 정렬).
+
+    엔드포인트: com.korail.mobile.common.stationdata (인증·서명 불필요, bodyless POST).
+    응답: {"stns":{"stn":[{"stn_cd","stn_nm","major",...}, ...]}} — 2026-09 기준 281역,
+    그중 45개에 major(주요역 정렬 순번)가 있다. 실패 시 빈 리스트.
+    """
+    import requests
+
+    url = f"{KORAIL_MOBILE}.common.stationdata"
+    try:
+        r = requests.post(url, headers=DEFAULT_HEADERS, timeout=timeout)
+        if r.status_code != 200:
+            return []
+        stns = json.loads(r.text).get("stns", {}).get("stn", [])
+    except Exception:
+        return []
+    majors, others = [], []
+    for s in stns:
+        name = (s.get("stn_nm") or "").strip()
+        if not name:
+            continue
+        mj = s.get("major") or ""
+        (majors if mj else others).append((name, mj))
+
+    def _mkey(item):
+        try:
+            return int(item[1])
+        except (TypeError, ValueError):
+            return 10 ** 9
+    majors.sort(key=_mkey)
+    # 주요역(정렬) 먼저, 그다음 나머지(이름순). 중복 이름 제거.
+    ordered, seen = [], set()
+    for name, _ in majors + sorted(others, key=lambda x: x[0]):
+        if name not in seen:
+            seen.add(name)
+            ordered.append(name)
+    return ordered
+
+
 API_ENDPOINTS = {
     "login": f"{KORAIL_MOBILE}.login.Login",
     "logout": f"{KORAIL_MOBILE}.common.logout",
