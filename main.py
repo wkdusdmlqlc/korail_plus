@@ -681,8 +681,11 @@ class SearchScreen(Base):
 
     def _work(self, rail, params):
         try:
+            # 매진 열차도 모두 표시(자동 재시도 대상으로 선택 가능해야 함).
+            # 결과 화면에서 특실/일반실 매진·가능을 색상으로 구분해 보여준다.
             trains = rail.search_train(params["dep"], params["arr"], date=params["date"],
-                                       time=params["time"], passengers=params["passengers"])
+                                       time=params["time"], passengers=params["passengers"],
+                                       include_no_seats=True, include_waiting_list=True)
             self._done(trains, None, params)
         except Exception as e:  # noqa
             self._done([], str(e), params)

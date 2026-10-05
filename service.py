@@ -147,6 +147,7 @@ def main():
             wanted = set(task.get("train_nos") or [])
             if wanted:
                 trains = [t for t in trains if t.train_no in wanted]
+            last_err = None  # 예매 시도 중 서버가 돌려준 실제 오류(중복예약 등)
             for train in trains:
                 try:
                     rsv = rail.reserve(train, passengers=passengers, option=option)
@@ -166,10 +167,13 @@ def main():
                         _notify(task, title, str(rsv))
                         return
                 except SoldOutError:
+                    continue  # 자리 없음 — 다음 열차/다음 회차로
+                except Exception as e:  # noqa — 중복예약 등 서버 거절 메시지 보존
+                    last_err = str(e)
                     continue
-                except Exception:  # noqa
-                    continue
-            _write_status("searching", f"{attempt}회 시도: 빈자리 없음, 재시도 중")
+            # 실제 오류가 있으면 그대로 노출(예: 이미 예약 내역 존재), 없으면 빈자리 없음
+            reason = last_err if last_err else "빈자리 없음"
+            _write_status("searching", f"{attempt}회 시도: {reason} — 재시도 중")
         except NoResultsError:
             _write_status("searching", f"{attempt}회 시도: 조회 결과 없음")
         except Exception as e:  # noqa
