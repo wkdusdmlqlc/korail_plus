@@ -726,6 +726,8 @@ class ResultsScreen(Base):
         self._option = SEAT_OPTIONS[seat_text]
         self._params = params
         self._trains = trains
+        self._checks = []  # (train, checkbox) — 선택 재시도용
+        self.retry_all.text = "전체 열차로 자동 재시도 시작"
         self.list.clear_widgets()
         for t in trains:
             card = Factory.Card()
@@ -749,7 +751,15 @@ class ResultsScreen(Base):
                                   size_hint_y=None, height=dp(26),
                                   text_size=(Window.width - dp(64), None)))
             brow = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(8))
-            brow.add_widget(Label(size_hint_x=0.35))
+            cb = CheckBox(active=False, size_hint_x=None, width=dp(32),
+                          color=ACCENT)
+            cb.bind(active=self._on_check)
+            self._checks.append((t, cb))
+            brow.add_widget(cb)
+            brow.add_widget(label("선택", color=MUTED, size="13sp", halign="left",
+                                  valign="middle", size_hint_x=None, width=dp(36),
+                                  text_size=(dp(36), None)))
+            brow.add_widget(Label())  # 가변 여백
             ib = button("즉시 예매", lambda tr=t: self._reserve(tr), "primary", 36)
             ib.font_size = "14sp"
             rb = accent_button("재시도", lambda tr=t: self._retry([tr]), 36)
@@ -758,6 +768,14 @@ class ResultsScreen(Base):
             brow.add_widget(rb)
             card.add_widget(brow)
             self.list.add_widget(card)
+
+    def _selected_trains(self):
+        return [t for (t, cb) in getattr(self, "_checks", []) if cb.active]
+
+    def _on_check(self, *a):
+        n = len(self._selected_trains())
+        self.retry_all.text = (f"선택한 {n}개 열차로 자동 재시도 시작" if n
+                               else "전체 열차로 자동 재시도 시작")
 
     def _reserve(self, train):
         self.toast("예매 시도 중…")
@@ -792,7 +810,9 @@ class ResultsScreen(Base):
         self.toast(msg)
 
     def _retry_all(self):
-        self._retry(self._trains)
+        # 체크된 열차가 있으면 그것만, 없으면 전체로 재시도
+        sel = self._selected_trains()
+        self._retry(sel if sel else self._trains)
 
     def _retry(self, trains):
         s = load_settings()
