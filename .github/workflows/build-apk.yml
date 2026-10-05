@@ -72,6 +72,26 @@ jobs:
       - name: Build debug APK
         run: buildozer android debug
 
+      - name: Re-sign APK with fixed key
+        # buildozer가 자체 debug 키로 서명할 수 있어, 고정 키로 명시적으로 재서명해
+        # 모든 빌드의 서명을 일관되게 만든다 → 재설치 시 'adb install -r'로 데이터 유지.
+        env:
+          KS_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KS_B64" ]; then echo "시크릿 없음 — 재서명 생략"; exit 0; fi
+          KS=~/.android/debug.keystore
+          APKSIGNER=$(find ~/.buildozer -path '*build-tools*' -name apksigner -type f 2>/dev/null | sort -V | tail -1)
+          ZIPALIGN=$(find ~/.buildozer -path '*build-tools*' -name zipalign -type f 2>/dev/null | sort -V | tail -1)
+          echo "apksigner=$APKSIGNER"
+          for apk in bin/*.apk; do
+            if [ -n "$ZIPALIGN" ]; then
+              "$ZIPALIGN" -f -p 4 "$apk" "$apk.aligned" && mv "$apk.aligned" "$apk"
+            fi
+            "$APKSIGNER" sign --ks "$KS" --ks-pass pass:android \
+              --ks-key-alias androiddebugkey --key-pass pass:android "$apk"
+            "$APKSIGNER" verify --print-certs "$apk" | grep -i "SHA-256" | head -1
+          done
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
