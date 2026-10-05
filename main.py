@@ -43,6 +43,7 @@ from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.checkbox import CheckBox
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen, ScreenManager, SlideTransition
@@ -561,6 +562,93 @@ def header(title, subtitle=None):
     return box
 
 
+_WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def fmt_date(yyyymmdd):
+    """'20261006' -> '2026-10-06 (월)'."""
+    from datetime import datetime
+    try:
+        d = datetime.strptime(yyyymmdd, "%Y%m%d")
+        return f"{d.year}-{d.month:02d}-{d.day:02d} ({_WEEKDAYS[d.weekday()]})"
+    except (ValueError, TypeError):
+        return yyyymmdd
+
+
+def open_calendar(initial, on_pick, days_ahead=30):
+    """월간 캘린더 팝업. 오늘~days_ahead일만 선택 가능. 선택 시 on_pick('YYYYMMDD')."""
+    import calendar as _cal
+    from datetime import datetime, timedelta
+    kst = (datetime.now() + timedelta(hours=9)).date()
+    last = kst + timedelta(days=days_ahead)
+    try:
+        cur = datetime.strptime(initial, "%Y%m%d").date()
+    except (ValueError, TypeError):
+        cur = kst
+    state = {"y": cur.year, "m": cur.month}
+
+    box = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(10))
+    hdr = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(6))
+    prev = button("◀", None, "ghost", 46)
+    prev.size_hint_x = None
+    prev.width = dp(52)
+    nxt = button("▶", None, "ghost", 46)
+    nxt.size_hint_x = None
+    nxt.width = dp(52)
+    title = label("", size="17sp", halign="center", valign="middle")
+    hdr.add_widget(prev)
+    hdr.add_widget(title)
+    hdr.add_widget(nxt)
+    box.add_widget(hdr)
+    wk = BoxLayout(size_hint_y=None, height=dp(26))
+    for i, d in enumerate(["일", "월", "화", "수", "목", "금", "토"]):
+        col = (0.88, 0.33, 0.33, 1) if i == 0 else ((0.4, 0.6, 0.95, 1) if i == 6 else MUTED)
+        wk.add_widget(label(d, color=col, size="13sp", halign="center", valign="middle"))
+    box.add_widget(wk)
+    grid = GridLayout(cols=7, spacing=dp(4), size_hint_y=None)
+    grid.bind(minimum_height=grid.setter("height"))
+    box.add_widget(grid)
+    popup = Popup(title="날짜 선택", content=box, size_hint=(0.94, None), height=dp(470),
+                  title_color=TXT, separator_color=ACCENT,
+                  background_color=(0.06, 0.07, 0.09, 1))
+
+    def cell(d):
+        from datetime import date as _date
+        if d == 0:
+            return Label(size_hint_y=None, height=dp(48))
+        day = _date(state["y"], state["m"], d)
+        selectable = kst <= day <= last
+        b = button(str(d), None, "ghost", 48)
+        b.font_size = "15sp"
+        if day == cur:
+            b.color = ACCENT  # 선택된 날짜 강조(글자색)
+        if not selectable:
+            b.disabled = True
+            b.opacity = 0.3
+        else:
+            ymd = day.strftime("%Y%m%d")
+            b.bind(on_release=lambda _w, v=ymd: (on_pick(v), popup.dismiss()))
+        return b
+
+    def render():
+        grid.clear_widgets()
+        title.text = f"{state['y']}년 {state['m']}월"
+        for week in _cal.Calendar(firstweekday=6).monthdayscalendar(state["y"], state["m"]):
+            for d in week:
+                grid.add_widget(cell(d))
+
+    def shift(delta):
+        m = state["m"] - 1 + delta
+        state["y"] += m // 12
+        state["m"] = m % 12 + 1
+        render()
+
+    prev.bind(on_release=lambda *_: shift(-1))
+    nxt.bind(on_release=lambda *_: shift(1))
+    render()
+    popup.open()
+
+
 def open_station_picker(on_pick):
     """검색 가능한 역 선택 팝업."""
     box = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(8))
@@ -693,10 +781,11 @@ class SearchScreen(Base):
         row.add_widget(self.arr_btn)
         card.add_widget(row)
         card.add_widget(Label(size_hint_y=None, height=dp(2)))
-        self.date_in = field("날짜 YYYYMMDD", text=kst.strftime("%Y%m%d"))
-        # 날짜가 오늘이면 현재 시각, 이후면 00:00:00 으로 시/분/초 자동 설정
-        self.date_in.bind(text=lambda *_: self._apply_time_for_date())
-        card.add_widget(self.date_in)
+        # 날짜: 캘린더 팝업으로 선택
+        self._date = kst.strftime("%Y%m%d")
+        self.date_btn = button(fmt_date(self._date),
+                               lambda: open_calendar(self._date, self._set_date), "ghost", 52)
+        card.add_widget(self.date_btn)
         # 시간: 시 / 분 / 초 3분할
         trow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
         self.hh = pick(kst.strftime("%H"), [f"{i:02d}" for i in range(24)])
@@ -742,10 +831,11 @@ class SearchScreen(Base):
         irow.add_widget(self.interval)
         root.add_widget(irow)
         arow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
-        self.autopay_lbl = label("예매 성공 시 자동결제", color=MUTED, size_hint_x=None, width=dp(150))
+        self.autopay_lbl = label("예매 성공 시 자동결제", color=MUTED, size="14sp",
+                                 halign="left", valign="middle")
+        self.autopay_lbl.bind(size=lambda w, *_: setattr(w, "text_size", w.size))
         arow.add_widget(self.autopay_lbl)
-        self.autopay = pick("사용" if load_settings().get("auto_pay") == "Y" else "사용 안 함",
-                            ["사용 안 함", "사용"])
+        self.autopay = CheckBox(active=False, size_hint_x=None, width=dp(48), color=ACCENT)
         arow.add_widget(self.autopay)
         root.add_widget(arow)
 
@@ -763,9 +853,14 @@ class SearchScreen(Base):
         has_card = bool(load_card().get("number"))
         self.autopay.disabled = not has_card
         if not has_card:
-            self.autopay.text = "사용 안 함"
+            self.autopay.active = False
         self.autopay_lbl.text = ("예매 성공 시 자동결제" if has_card
                                  else "자동결제 (카드 등록 필요)")
+
+    def _set_date(self, yyyymmdd):
+        self._date = yyyymmdd
+        self.date_btn.text = fmt_date(yyyymmdd)
+        self._apply_time_for_date()
 
     def _apply_time_for_date(self):
         """날짜가 오늘이면 현재 시각, 오늘 이후면 00:00:00 으로 시/분/초를 맞춘다.
@@ -775,7 +870,7 @@ class SearchScreen(Base):
         from datetime import datetime, timedelta
         kst = datetime.now() + timedelta(hours=9)
         today = kst.strftime("%Y%m%d")
-        date = self.date_in.text.strip()
+        date = (self._date or "").strip()
         if len(date) != 8 or not date.isdigit():
             return
         if date == today:
@@ -813,12 +908,12 @@ class SearchScreen(Base):
         self.btn.text = "조회 중…"
         self.btn.disabled = True
         params = dict(dep=self._dep, arr=self._arr,
-                      date=self.date_in.text.strip(),
+                      date=self._date.strip(),
                       time=f"{self.hh.text}{self.mm.text}{self.ss.text}",
                       adult=int(self.adult.text), child=int(self.child.text),
                       senior=int(self.senior.text), dis13=int(self.dis13.text),
                       dis46=int(self.dis46.text), interval=self.interval.text,
-                      auto_pay="Y" if self.autopay.text == "사용" else "N",
+                      auto_pay="Y" if self.autopay.active else "N",
                       passengers=self._passengers())
         threading.Thread(target=self._work, args=(app.rail, params), daemon=True).start()
 
