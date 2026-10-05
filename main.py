@@ -250,8 +250,13 @@ def _ks_key():
 
 
 def _ks_encrypt(text):
-    """평문 -> base64(ivlen|iv|ct). Keystore 불가 시 None."""
-    try:
+    """평문 -> base64(ivlen|iv|ct). Keystore 불가 시 None.
+
+    ⚠️ 현재 pyjnius Keystore 호출이 네이티브 abort(try/except로 못 막힘)를 일으켜
+    앱이 종료됨 → 안전을 위해 비활성화(평문 폴백). 정식 Keystore 연동은 재작업 필요.
+    """
+    return None
+    try:  # noqa (아래 코드는 보류 — 네이티브 크래시 수정 후 활성화)
         import base64
         from jnius import autoclass
         Cipher = autoclass("javax.crypto.Cipher")
@@ -265,6 +270,7 @@ def _ks_encrypt(text):
 
 
 def _ks_decrypt(b64):
+    return None  # Keystore 비활성화(위 _ks_encrypt 참고) — 네이티브 크래시 방지
     try:
         import base64
         from jnius import autoclass
