@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import threading
+import time
 import traceback
 
 # 시작 크래시를 파일로 남겨 진단 가능하게 (앱 저장소)
@@ -183,6 +184,13 @@ TXT = (0.93, 0.94, 0.95, 1)
 MUTED = (0.55, 0.58, 0.63, 1)
 ACCENT = (0.235, 0.863, 0.518, 1)
 PRIMARY = (0.0, 0.655, 0.345, 1)
+BRAND = (0.235, 0.863, 0.518, 1)  # 재시도 완료 강조(=ACCENT 톤)
+
+
+def _hex(color):
+    """(r,g,b,a) 0~1 → 'RRGGBB' (Kivy 마크업 [color=...]용)."""
+    r, g, b = (int(max(0, min(1, c)) * 255) for c in color[:3])
+    return f"{r:02X}{g:02X}{b:02X}"
 
 
 # ---------- 저장소/설정/서비스 제어 ----------
@@ -204,8 +212,8 @@ def _cfg_dir():
 
 CRED_PATH = os.path.join(_cfg_dir(), "credentials.json")
 SETTINGS_PATH = os.path.join(_cfg_dir(), "settings.json")
-TASK_PATH = os.path.join(_cfg_dir(), "task.json")
-STATUS_PATH = os.path.join(_cfg_dir(), "status.json")
+JOBS_PATH = os.path.join(_cfg_dir(), "jobs.json")          # 작업 목록(GUI가 추가/취소)
+JOBSTATUS_PATH = os.path.join(_cfg_dir(), "job_status.json")  # 작업별 상태(서비스가 기록)
 STOP_PATH = os.path.join(_cfg_dir(), "stop.flag")
 
 
@@ -218,9 +226,12 @@ def _load(path, default):
 
 
 def _save(path, data):
+    """원자적 저장(tmp+replace) — 백그라운드 서비스와의 동시 접근 경합 방지."""
+    tmp = path + ".tmp"
     try:
-        with open(path, "w") as f:
+        with open(tmp, "w") as f:
             json.dump(data, f)
+        os.replace(tmp, path)
     except OSError:
         pass
 
@@ -300,8 +311,15 @@ def save_creds(d):
 
 
 def load_settings():
-    return _load(SETTINGS_PATH, {"notify": "telegram", "tg_token": "", "tg_chat": "",
-                                 "interval": "3", "auto_pay": "N"})
+    # 기본 알림: 안드로이드. enabled=알림 on/off.
+    d = _load(SETTINGS_PATH, {})
+    return {
+        "enabled": d.get("enabled", True),
+        "notify": d.get("notify", "android"),
+        "tg_token": d.get("tg_token", ""),
+        "tg_chat": d.get("tg_chat", ""),
+        "interval": d.get("interval", "3"),
+    }
 
 
 def save_settings(d):
@@ -374,17 +392,51 @@ def pay_reservation(rail, rsv):
     )
 
 
-def write_task(task):
-    try:
+def load_jobs():
+    lst = _load(JOBS_PATH, [])
+    return lst if isinstance(lst, list) else []
+
+
+def save_jobs(jobs):
+    _save(JOBS_PATH, jobs)
+
+
+def read_job_status():
+    d = _load(JOBSTATUS_PATH, {})
+    return d if isinstance(d, dict) else {}
+
+
+def add_job(job):
+    """작업을 목록에 추가하고 백그라운드 서비스를 시작한다.
+
+    주의: job["id"]/["pass"]는 코레일 로그인 자격증명이므로 건드리지 않는다.
+    작업 식별자는 별도 키 job["jid"]를 쓴다."""
+    import uuid
+    job["jid"] = uuid.uuid4().hex[:8]
+    job["created"] = int(time.time())
+    jobs = load_jobs()
+    jobs.append(job)
+    save_jobs(jobs)
+    try:  # 새 작업 추가 시 전체중지 플래그 해제
         if os.path.exists(STOP_PATH):
             os.remove(STOP_PATH)
     except OSError:
         pass
-    _save(TASK_PATH, task)
+    return start_retry_service()
 
 
-def read_status():
-    return _load(STATUS_PATH, {})
+def cancel_job(job_id):
+    """작업 하나를 목록에서 제거(서비스가 다음 사이클에 반영). 확보된 예약은 유지됨."""
+    jobs = [j for j in load_jobs() if j.get("jid") != job_id]
+    save_jobs(jobs)
+    if not jobs:
+        stop_retry_service()  # 남은 작업 없으면 서비스 종료
+
+
+def clear_all_jobs():
+    """모든 작업 중지 및 제거."""
+    save_jobs([])
+    stop_retry_service()
 
 
 def start_retry_service():
@@ -872,7 +924,8 @@ class ResultsScreen(Base):
         s = load_settings()
         creds = load_creds()
         card = load_card()
-        task = {
+        notify = s.get("notify", "android") if s.get("enabled", True) else "none"
+        job = {
             "id": creds.get("id"), "pass": creds.get("pass"),
             "dep": self._params["dep"], "arr": self._params["arr"],
             "date": self._params["date"], "time": self._params["time"],
@@ -881,16 +934,17 @@ class ResultsScreen(Base):
             "dis46": self._params.get("dis46", 0),
             "option": self._option,  # ReserveOption 값 == 문자열
             "train_nos": [t.train_no for t in trains],
-            "interval": self._params.get("interval", "3"), "notify": s.get("notify", "telegram"),
-            "tg_token": s.get("tg_token", ""), "tg_chat": s.get("tg_chat", ""),
-            # 자동 결제 (카드 등록 시)
+            "interval": self._params.get("interval", "3"),
+            "notify": notify, "tg_token": s.get("tg_token", ""), "tg_chat": s.get("tg_chat", ""),
+            # 자동 결제(조회에서 선택) — 분할된 예약 건마다 적용
             "auto_pay": self._params.get("auto_pay", "N"),
             "card": card if card.get("number") else None,
         }
-        write_task(task)
-        started = start_retry_service()
-        self.manager.get_screen("status").begin(started)
-        self.manager.go("status")
+        started = add_job(job)
+        n = len(trains)
+        self.toast(f"백그라운드 자동 재시도 추가됨 ({n}개 열차)" if started
+                   else "추가됨 — 안드로이드 기기에서 실행하세요")
+        self.manager.go("jobs")
 
 
 class SettingsScreen(Base):
@@ -903,18 +957,26 @@ class SettingsScreen(Base):
         head.add_widget(label("[b]알림 설정[/b]", color=TXT, size="18sp", halign="left",
                               valign="middle"))
         root.add_widget(head)
-        root.add_widget(label("예매 성공 시 자동 결제", color=MUTED, size_hint_y=None, height=dp(22),
-                              halign="left", text_size=(Window.width - dp(40), None)))
-        self.autopay = pick("사용" if s.get("auto_pay") == "Y" else "사용 안 함",
-                            ["사용 안 함", "사용"])
-        root.add_widget(self.autopay)
-        root.add_widget(label("알림 방법", color=MUTED, size_hint_y=None, height=dp(22),
-                              halign="left", text_size=(Window.width - dp(40), None)))
-        rev = {"telegram": "텔레그램", "android": "안드로이드 알림", "both": "텔레그램"}
-        self.notify = pick(rev.get(s.get("notify", "telegram"), "텔레그램"),
-                           ["텔레그램", "안드로이드 알림"])
+        # 알림 사용 여부 토글 (맨 위)
+        enrow = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
+        enrow.add_widget(label("알림 사용", color=TXT, size="16sp", halign="left",
+                               valign="middle"))
+        self.enabled = CheckBox(active=bool(s.get("enabled", True)), size_hint_x=None,
+                                width=dp(44), color=ACCENT)
+        self.enabled.bind(active=lambda *a: self._toggle_enabled())
+        enrow.add_widget(self.enabled)
+        root.add_widget(enrow)
+        # 알림 방법/텔레그램 입력을 감싸는 영역 (알림 비활성화 시 전체 숨김)
+        self.notibox = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(12))
+        self.notibox.add_widget(label("알림 방법", color=MUTED, size_hint_y=None, height=dp(22),
+                                      halign="left", text_size=(Window.width - dp(40), None)))
+        rev = {"telegram": "텔레그램", "android": "안드로이드 알림"}
+        self.notify = pick(rev.get(s.get("notify", "android"), "안드로이드 알림"),
+                           ["안드로이드 알림", "텔레그램"])
+        self.notify.size_hint_y = None
+        self.notify.height = dp(52)
         self.notify.bind(text=lambda *a: self._toggle_tg())
-        root.add_widget(self.notify)
+        self.notibox.add_widget(self.notify)
         # 텔레그램 입력(토큰/chat_id) — 텔레그램 선택 시에만 표시
         self.tgbox = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(12))
         self.tgbox.add_widget(label("텔레그램 봇 토큰", color=MUTED, size_hint_y=None, height=dp(22),
@@ -926,77 +988,121 @@ class SettingsScreen(Base):
         self.chat = field("chat id", text=s.get("tg_chat", ""))
         self.tgbox.add_widget(self.chat)
         self._TG_H = dp(22 + 52 + 22 + 52 + 12 * 3)
-        root.add_widget(self.tgbox)
+        self.notibox.add_widget(self.tgbox)
+        root.add_widget(self.notibox)
         root.add_widget(button("저장", self.save))
         root.add_widget(Label())
         self.add_widget(root)
-        self._toggle_tg()
+        self._toggle_enabled()
+
+    def _toggle_enabled(self):
+        on = bool(self.enabled.active)
+        self.notibox.opacity = 1 if on else 0
+        self.notibox.disabled = not on
+        self._toggle_tg()  # tgbox 높이 반영 후 notibox 전체 높이 계산
 
     def _toggle_tg(self):
-        show = self.notify.text == "텔레그램"
+        show = (self.notify.text == "텔레그램") and bool(self.enabled.active)
         self.tgbox.height = self._TG_H if show else 0
         self.tgbox.opacity = 1 if show else 0
         self.tgbox.disabled = not show
+        # notibox 높이 = 라벨(22) + 알림방법 picker(52) + tgbox + 간격(12*2)
+        on = bool(self.enabled.active)
+        self.notibox.height = (dp(22) + dp(52) + self.tgbox.height + dp(24)) if on else 0
 
     def save(self):
         m = {"텔레그램": "telegram", "안드로이드 알림": "android"}
-        save_settings({"notify": m.get(self.notify.text, "telegram"),
-                       "tg_token": self.tok.text.strip(), "tg_chat": self.chat.text.strip(),
-                       "auto_pay": "Y" if self.autopay.text == "사용" else "N"})
+        save_settings({"enabled": bool(self.enabled.active),
+                       "notify": m.get(self.notify.text, "android"),
+                       "tg_token": self.tok.text.strip(), "tg_chat": self.chat.text.strip()})
         self.toast("설정이 저장되었습니다")
         self.manager.go("menu", "right")
 
 
-class StatusScreen(Base):
+class JobsScreen(Base):
+    """자동 재시도 현황 — 실행 중인 모든 작업 목록 + 작업별 취소/전체 중지."""
+    _STATE_LABEL = {"searching": ("재시도 중", MUTED), "partial": ("일부 확보", ACCENT),
+                    "done": ("✅ 완료", BRAND), "error": ("⚠ 오류", (0.88, 0.33, 0.33, 1)),
+                    "login": ("로그인 중", MUTED)}
+
     def __init__(self, **kw):
         super().__init__(**kw)
         self._ev = None
-        root = BoxLayout(orientation="vertical", padding=dp(24), spacing=dp(18))
-        root.add_widget(Label(size_hint_y=0.15))
-        root.add_widget(label("[b]자동 재시도[/b]", color=ACCENT, size="24sp",
-                              size_hint_y=None, height=dp(40)))
-        self.state = label("대기 중", size="18sp", size_hint_y=None, height=dp(32))
-        self.msg = label("", color=MUTED, size="14sp", halign="center",
-                         size_hint_y=None, height=dp(90))
-        self.msg.bind(width=lambda w, *_: setattr(w, "text_size", (w.width - dp(20), None)))
-        root.add_widget(self.state)
-        root.add_widget(self.msg)
-        self.stopbtn = button("중지", self.stop, "primary")
-        self.stopbtn.bg = (0.8, 0.26, 0.26, 1)
-        root.add_widget(self.stopbtn)
-        root.add_widget(button("조회로 돌아가기", lambda: self.manager.go("search", "right"), "ghost", 46))
-        root.add_widget(Label())
+        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
+        head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
+        head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
+        head.add_widget(label("[b]자동 재시도 현황[/b]", color=TXT, size="18sp", halign="left",
+                              valign="middle"))
+        root.add_widget(head)
+        sv = ScrollView()
+        self.list = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10),
+                              padding=[0, dp(6)])
+        self.list.bind(minimum_height=self.list.setter("height"))
+        sv.add_widget(self.list)
+        root.add_widget(sv)
+        self.stopall = button("전체 중지", self._stop_all, "ghost", 48)
+        root.add_widget(self.stopall)
         self.add_widget(root)
 
-    def begin(self, started):
-        self.state.text = "실행 중" if started else "시작 실패"
-        self.msg.text = ("백그라운드에서 재시도합니다.\n화면을 꺼도 계속 동작합니다."
-                         if started else "서비스를 시작하지 못했습니다.\n안드로이드 기기에서 실행하세요.")
+    def on_pre_enter(self, *a):
+        self._render()
         if self._ev:
             self._ev.cancel()
-        self._ev = Clock.schedule_interval(self._poll, 1.5)
-
-    def _poll(self, *_):
-        st = read_status()
-        if not st:
-            return
-        state = st.get("state", "")
-        self.state.text = {"login": "로그인 중", "searching": "재시도 중",
-                           "done": "✅ 예매 성공", "stopped": "중지됨",
-                           "error": "오류"}.get(state, state)
-        self.msg.text = st.get("msg", "")
-        if state in ("done", "stopped", "error") and self._ev:
-            self._ev.cancel()
-            self._ev = None
-
-    def stop(self):
-        stop_retry_service()
-        self.toast("중지 요청됨")
+        self._ev = Clock.schedule_interval(lambda *_: self._render(), 1.5)
 
     def on_leave(self, *a):
         if self._ev:
             self._ev.cancel()
             self._ev = None
+
+    def _render(self, *_):
+        jobs = load_jobs()
+        statuses = read_job_status()
+        self.list.clear_widgets()
+        if not jobs:
+            self.list.add_widget(label("진행 중인 자동 재시도가 없습니다.", color=MUTED,
+                                       size_hint_y=None, height=dp(40), halign="center",
+                                       text_size=(Window.width - dp(48), None)))
+            return
+        for job in jobs:
+            st = statuses.get(job.get("jid"), {})
+            card = Factory.Card()
+            card.size_hint_y = None
+            card.height = dp(104)
+            route = st.get("route") or f'{job.get("dep")}→{job.get("arr")} {job.get("date","")}'
+            card.add_widget(label(f"[b]{route}[/b]", size="15sp", halign="left", valign="middle",
+                                  size_hint_y=None, height=dp(24),
+                                  text_size=(Window.width - dp(64), None)))
+            state = st.get("state", "searching")
+            stext, scolor = self._STATE_LABEL.get(state, (state, MUTED))
+            booked = len(st.get("booked", []))
+            total = st.get("total", "")
+            head2 = f"[color={_hex(scolor)}]{stext}[/color]   확보 {booked}/{total}"
+            card.add_widget(label(head2, size="14sp", halign="left", valign="middle",
+                                  size_hint_y=None, height=dp(24),
+                                  text_size=(Window.width - dp(64), None)))
+            card.add_widget(label(st.get("msg", "대기 중"), color=MUTED, size="12sp",
+                                  halign="left", valign="middle", size_hint_y=None, height=dp(22),
+                                  text_size=(Window.width - dp(64), None)))
+            brow = BoxLayout(size_hint_y=None, height=dp(34), spacing=dp(8))
+            brow.add_widget(Label())
+            cb = button("취소", lambda jid=job.get("jid"): self._cancel(jid), "ghost", 34)
+            cb.size_hint_x = None
+            cb.width = dp(90)
+            cb.font_size = "13sp"
+            brow.add_widget(cb)
+            card.add_widget(brow)
+            self.list.add_widget(card)
+
+    def _cancel(self, job_id):
+        cancel_job(job_id)        # 해당 작업만 제거(다른 작업은 계속)
+        self.toast("작업을 취소했습니다")
+        self._render()
+
+    def _stop_all(self):
+        clear_all_jobs()
+        self.toast("모든 자동 재시도를 중지했습니다")
+        self._render()
 
 
 class MenuScreen(Base):
@@ -1011,6 +1117,7 @@ class MenuScreen(Base):
         root.add_widget(self.hello)
         items = [
             ("🚆  예매 시작", lambda: self.manager.go("search")),
+            ("🔄  자동 재시도 현황", lambda: self.manager.go("jobs")),
             ("🎫  예매 확인 / 결제 / 취소", lambda: self._open_reservations()),
             ("💳  카드 설정", lambda: self.manager.go("card")),
             ("🚉  역 설정", lambda: self.manager.go("station")),
@@ -1317,7 +1424,7 @@ class KorailPlusApp(App):
         sm.add_widget(CardScreen(name="card"))
         sm.add_widget(StationScreen(name="station"))
         sm.add_widget(SettingsScreen(name="settings"))
-        sm.add_widget(StatusScreen(name="status"))
+        sm.add_widget(JobsScreen(name="jobs"))
         sm.current = "login"  # 항상 로그인 화면으로 시작
         ensure_station_master_async()  # 코레일 역 마스터 캐시 백그라운드 준비
         return sm
