@@ -205,6 +205,7 @@ def _try_book(rail, job, st):
     if wanted:
         trains = [t for t in trains if t.train_no in wanted]
 
+    st["reason"] = None  # 이번 사이클 실패 사유(포맷된 msg와 분리 — 재귀 누적 방지)
     last_err = None
     for train in trains:
         # 1) 전원 묶음 예매(2명 이상, 아직 아무도 확보 못했을 때 우선 — 일행 함께)
@@ -235,8 +236,7 @@ def _try_book(rail, job, st):
                     break
         if _counts_total(counts) == 0:
             return
-    if last_err:
-        st["msg"] = last_err
+    st["reason"] = last_err  # 없으면 None → 메인 루프에서 '빈자리 없음'
 
 
 def _login(creds):
@@ -302,7 +302,7 @@ def main():
                             f'{st["route"]}\n예약 {booked}건{tail}\n{pnrs}')
                 else:
                     st["state"] = "partial" if booked else "searching"
-                    reason = st.get("msg") or "빈자리 없음"
+                    reason = st.get("reason") or "빈자리 없음"
                     st["msg"] = (f'{st["attempts"]}회 시도 · 확보 {booked}/{total} · '
                                  f'{reason} — 재시도 중')
             except NoResultsError:

@@ -185,7 +185,7 @@ MUTED = (0.55, 0.58, 0.63, 1)
 ACCENT = (0.235, 0.863, 0.518, 1)
 PRIMARY = (0.0, 0.655, 0.345, 1)
 BRAND = (0.235, 0.863, 0.518, 1)  # 재시도 완료 강조(=ACCENT 톤)
-SAFE_TOP = 34  # 상단 상태바/노치 회피 여백(dp 단위 — 사용처에서 dp()로 변환)
+SAFE_TOP = 44  # 상단 상태바/노치 회피 여백(dp — 기기 상태바 ~37dp보다 크게)
 
 
 def _hex(color):
@@ -1077,7 +1077,8 @@ class JobsScreen(Base):
             st = statuses.get(job.get("jid"), {})
             card = Factory.Card()
             card.size_hint_y = None
-            card.height = dp(104)
+            # 내용(제목24+상태24+메시지22+버튼34) + Card 패딩32 + 간격18 = 154
+            card.height = dp(154)
             route = st.get("route") or f'{job.get("dep")}→{job.get("arr")} {job.get("date","")}'
             card.add_widget(label(f"[b]{route}[/b]", size="15sp", halign="left", valign="middle",
                                   size_hint_y=None, height=dp(24),
@@ -1090,9 +1091,13 @@ class JobsScreen(Base):
             card.add_widget(label(head2, size="14sp", halign="left", valign="middle",
                                   size_hint_y=None, height=dp(24),
                                   text_size=(Window.width - dp(64), None)))
-            card.add_widget(label(st.get("msg", "대기 중"), color=MUTED, size="12sp",
-                                  halign="left", valign="middle", size_hint_y=None, height=dp(22),
-                                  text_size=(Window.width - dp(64), None)))
+            msg = str(st.get("msg", "대기 중"))[:120]  # 과도한 길이 방어
+            ml = label(msg, color=MUTED, size="12sp", halign="left", valign="middle",
+                       size_hint_y=None, height=dp(22),
+                       text_size=(Window.width - dp(64), dp(22)))
+            ml.shorten = True           # 한 줄로 말줄임 — 카드 넘침 방지
+            ml.shorten_from = "right"
+            card.add_widget(ml)
             brow = BoxLayout(size_hint_y=None, height=dp(34), spacing=dp(8))
             brow.add_widget(Label())
             cb = button("취소", lambda jid=job.get("jid"): self._cancel(jid), "ghost", 34)
