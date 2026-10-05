@@ -26,7 +26,9 @@ fullscreen = 0
 android.add_src = java
 
 # 백그라운드 자동 재시도 서비스 (Foreground Service)
-services = Korailretry:service.py:foreground
+# Android 14(API 34)는 FGS에 foregroundServiceType 선언 필수 → dataSync 지정
+# (권한 FOREGROUND_SERVICE_DATA_SYNC와 대응). 미지정 시 MissingForegroundServiceTypeException.
+services = Korailretry:service.py:foreground:foregroundServiceType=dataSync
 
 # 권한: 인터넷 + 포그라운드 서비스 + 알림 + 웨이크락
 android.permissions = INTERNET, ACCESS_NETWORK_STATE, FOREGROUND_SERVICE, FOREGROUND_SERVICE_DATA_SYNC, POST_NOTIFICATIONS, WAKE_LOCK, RECEIVE_BOOT_COMPLETED
