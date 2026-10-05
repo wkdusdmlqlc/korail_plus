@@ -365,6 +365,26 @@ def fetch_station_master(force=False):
     return None
 
 
+def test_telegram(token, chat):
+    """텔레그램 설정 검증용 테스트 전송. (성공여부, 메시지) 반환."""
+    if not token or not chat:
+        return False, "토큰과 chat_id를 모두 입력하세요"
+    try:
+        import requests
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data={"chat_id": chat, "text": "✅ korail+ 텔레그램 알림 테스트"}, timeout=10)
+        try:
+            j = r.json()
+        except ValueError:
+            j = {}
+        if r.status_code == 200 and j.get("ok"):
+            return True, "테스트 메시지를 보냈습니다. 텔레그램을 확인하세요."
+        return False, j.get("description") or f"실패 (HTTP {r.status_code})"
+    except Exception as e:  # noqa
+        return False, str(e)
+
+
 def request_notification_permission():
     """Android 13+ 런타임 알림 권한(POST_NOTIFICATIONS) 요청.
 
@@ -1007,7 +1027,9 @@ class SettingsScreen(Base):
                                     halign="left", text_size=(Window.width - dp(40), None)))
         self.chat = field("chat id", text=s.get("tg_chat", ""))
         self.tgbox.add_widget(self.chat)
-        self._TG_H = dp(22 + 52 + 22 + 52 + 12 * 3)
+        self.testbtn = button("연결 테스트", self._test_tg, "ghost", 46)
+        self.tgbox.add_widget(self.testbtn)
+        self._TG_H = dp(22 + 52 + 22 + 52 + 46 + 12 * 4)
         self.notibox.add_widget(self.tgbox)
         root.add_widget(self.notibox)
         root.add_widget(button("저장", self.save))
@@ -1029,6 +1051,22 @@ class SettingsScreen(Base):
         # notibox 높이 = 라벨(22) + 알림방법 picker(52) + tgbox + 간격(12*2)
         on = bool(self.enabled.active)
         self.notibox.height = (dp(22) + dp(52) + self.tgbox.height + dp(24)) if on else 0
+
+    def _test_tg(self):
+        self.testbtn.text = "전송 중…"
+        self.testbtn.disabled = True
+        tok, chat = self.tok.text.strip(), self.chat.text.strip()
+        threading.Thread(target=self._test_tg_work, args=(tok, chat), daemon=True).start()
+
+    def _test_tg_work(self, tok, chat):
+        ok, msg = test_telegram(tok, chat)
+        self._test_tg_done(ok, msg)
+
+    @mainthread
+    def _test_tg_done(self, ok, msg):
+        self.testbtn.text = "연결 테스트"
+        self.testbtn.disabled = False
+        self.toast(("✅ " if ok else "⚠ ") + msg)
 
     def save(self):
         m = {"텔레그램": "telegram", "안드로이드 알림": "android"}

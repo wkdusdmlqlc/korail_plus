@@ -95,7 +95,11 @@ def _notify(job, title, msg):
     if method == "android":
         _notify_android(title, msg)
     elif method == "telegram":
-        _notify_telegram(job, f"{title}\n{msg}")
+        ok, err = _notify_telegram(job, f"{title}\n{msg}")
+        if not ok:
+            # 조용히 실패하지 않도록 안드로이드 알림으로 폴백(원인 포함)
+            _notify_android("⚠ 텔레그램 전송 실패",
+                            f"{err}\n알림 설정에서 토큰/chat_id를 확인하세요.\n(알림: {title})")
 
 
 def _notify_android(title, msg):
@@ -131,18 +135,27 @@ def _notify_android(title, msg):
 
 
 def _notify_telegram(job, text):
+    """텔레그램 전송. (성공여부, 오류메시지) 반환 — 실패 시 상위에서 폴백 알림."""
     token, chat = job.get("tg_token"), job.get("tg_chat")
     if not token or not chat:
-        return
+        return False, "토큰/chat_id가 비어 있습니다"
     try:
         import requests
 
-        requests.post(
+        r = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             data={"chat_id": chat, "text": text}, timeout=10,
         )
-    except Exception:
+        try:
+            j = r.json()
+        except ValueError:
+            j = {}
+        if r.status_code == 200 and j.get("ok"):
+            return True, ""
+        return False, j.get("description") or f"HTTP {r.status_code}"
+    except Exception as e:  # noqa
         traceback.print_exc()
+        return False, str(e)
 
 
 # ---------- 결제 ----------
