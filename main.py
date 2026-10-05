@@ -365,6 +365,18 @@ def fetch_station_master(force=False):
     return None
 
 
+def request_notification_permission():
+    """Android 13+ 런타임 알림 권한(POST_NOTIFICATIONS) 요청.
+
+    미승인 시 nm.notify()가 조용히 무시돼 재시도/예매 성공 알림이 안 뜬다.
+    비안드로이드/오류 시 조용히 무시."""
+    try:
+        from android.permissions import Permission, request_permissions
+        request_permissions([Permission.POST_NOTIFICATIONS])
+    except Exception:
+        pass
+
+
 def ensure_station_master_async():
     """역 마스터 캐시가 없으면 백그라운드로 받아 둔다."""
     threading.Thread(target=fetch_station_master, daemon=True).start()
@@ -1484,6 +1496,7 @@ class KorailPlusApp(App):
         sm.add_widget(SettingsScreen(name="settings"))
         sm.add_widget(JobsScreen(name="jobs"))
         sm.current = "login"  # 항상 로그인 화면으로 시작
+        request_notification_permission()  # 알림 권한(Android 13+) 요청
         ensure_station_master_async()  # 코레일 역 마스터 캐시 백그라운드 준비
         return sm
 
