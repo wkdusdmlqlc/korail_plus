@@ -359,18 +359,19 @@ def read_status():
 
 
 def start_retry_service():
+    """p4a가 생성한 서비스 클래스의 정적 start()로 시작.
+
+    수동으로 Intent만 만들어 startService()하면 PythonService.onStartCommand가
+    기대하는 extras(androidPrivate/serviceEntrypoint/pythonServiceArgument 등)가
+    없어 NullPointerException으로 즉시 종료된다. 생성된 start()가 그 extras를
+    모두 채워주므로 반드시 이를 호출한다.
+    """
     try:
         from jnius import autoclass
 
         ctx = autoclass("org.kivy.android.PythonActivity").mActivity
-        Intent = autoclass("android.content.Intent")
         Service = autoclass("org.korailplus.korailplus.ServiceKorailretry")
-        intent = Intent(ctx, Service)
-        VERSION = autoclass("android.os.Build$VERSION")
-        if VERSION.SDK_INT >= 26:
-            ctx.startForegroundService(intent)
-        else:
-            ctx.startService(intent)
+        Service.start(ctx, "")
         return True
     except Exception:
         return False
@@ -386,9 +387,8 @@ def stop_retry_service():
         from jnius import autoclass
 
         ctx = autoclass("org.kivy.android.PythonActivity").mActivity
-        Intent = autoclass("android.content.Intent")
         Service = autoclass("org.korailplus.korailplus.ServiceKorailretry")
-        ctx.stopService(Intent(ctx, Service))
+        Service.stop(ctx)
     except Exception:
         pass
 
