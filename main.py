@@ -603,6 +603,8 @@ class SearchScreen(Base):
         card.add_widget(row)
         card.add_widget(Label(size_hint_y=None, height=dp(2)))
         self.date_in = field("날짜 YYYYMMDD", text=kst.strftime("%Y%m%d"))
+        # 날짜가 오늘이면 현재 시각, 이후면 00:00:00 으로 시/분/초 자동 설정
+        self.date_in.bind(text=lambda *_: self._apply_time_for_date())
         card.add_widget(self.date_in)
         # 시간: 시 / 분 / 초 3분할
         trow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
@@ -663,6 +665,8 @@ class SearchScreen(Base):
         self.add_widget(root)
 
     def on_pre_enter(self, *a):
+        # 날짜 기준 시간 자동 설정(오늘=현재 시각, 이후=00:00:00)
+        self._apply_time_for_date()
         # 카드 미등록 시 자동결제 비활성화
         has_card = bool(load_card().get("number"))
         self.autopay.disabled = not has_card
@@ -670,6 +674,24 @@ class SearchScreen(Base):
             self.autopay.text = "사용 안 함"
         self.autopay_lbl.text = ("예매 성공 시 자동결제" if has_card
                                  else "자동결제 (카드 등록 필요)")
+
+    def _apply_time_for_date(self):
+        """날짜가 오늘이면 현재 시각, 오늘 이후면 00:00:00 으로 시/분/초를 맞춘다.
+
+        분은 5단위, 초는 10단위 피커라 현재 시각은 내림해 맞춘다(임박 열차 누락 방지).
+        과거 날짜·형식 오류는 건드리지 않는다."""
+        from datetime import datetime, timedelta
+        kst = datetime.now() + timedelta(hours=9)
+        today = kst.strftime("%Y%m%d")
+        date = self.date_in.text.strip()
+        if len(date) != 8 or not date.isdigit():
+            return
+        if date == today:
+            self.hh.text = kst.strftime("%H")
+            self.mm.text = f"{(kst.minute // 5) * 5:02d}"
+            self.ss.text = f"{(kst.second // 10) * 10:02d}"
+        elif date > today:
+            self.hh.text, self.mm.text, self.ss.text = "00", "00", "00"
 
     def _set_dep(self, name):
         self._dep = name
