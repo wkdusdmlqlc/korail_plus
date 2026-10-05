@@ -27,7 +27,7 @@ from functools import reduce
 
 # 핫패치(자동 업데이트) 버전 표식 — 코레일 API 변경 대응 시 이 값을 올리면
 # 앱이 GitHub raw에서 새 ktx.py를 받아 재설치 없이 반영한다. 형식: YYYYMMDD[NN]
-__version__ = "20261006"
+__version__ = "20261007"
 
 # Constants
 EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
@@ -215,6 +215,7 @@ API_ENDPOINTS = {
     "myreservationlist": f"{KORAIL_MOBILE}.certification.ReservationList",
     "pay": f"{KORAIL_MOBILE}.payment.ReservationPayment",
     "refund": f"{KORAIL_MOBILE}.refunds.RefundsRequest",
+    "refund_commission": f"{KORAIL_MOBILE}.refunds.CommissionView",  # 환불 수수료 사전조회
     "code": f"{KORAIL_MOBILE}.common.code.do",
 }
 
@@ -1200,6 +1201,44 @@ class Korail:
         self._log(r.text)
         j = json.loads(r.text)
         return self._result_check(j)
+
+    def refund_fee(self, ticket):
+        """환불 수수료를 사전 조회(환불하지 않음). dict 반환.
+
+        엔드포인트: refunds.CommissionView. 주의 — 폼 필드명이 refund()와 다르다
+        (판매일자 h_orgtk_ret_sale_dt, 창구번호 h_orgtk_wct_no). 둘 다 APK에 실재해
+        헷갈리면 조용히 빈 값이 되므로 통일하지 말 것.
+        반환: {fee: 수수료, amount: 환불액, mileage: 가용마일리지, refundable: bool}.
+        """
+        data = {
+            "Device": self._device,
+            "Version": self._version,
+            "Key": self._key,
+            "h_orgtk_ret_sale_dt": ticket.sale_info2,
+            "h_orgtk_wct_no": ticket.sale_info1,
+            "h_orgtk_sale_sqno": ticket.sale_info3,
+            "h_orgtk_ret_pwd": ticket.sale_info4,
+            "h_comp_nm": "",
+            "h_comp_cert_no": "",
+            "ctlDvCd": "",
+            "lang": "",
+        }
+        r = self._session.post(API_ENDPOINTS["refund_commission"], data=data)
+        self._log(r.text)
+        j = json.loads(r.text)
+        self._result_check(j)
+
+        def _int(v):
+            try:
+                return int(str(v).replace(",", "") or 0)
+            except (TypeError, ValueError):
+                return 0
+        return {
+            "fee": _int(j.get("ret_fee")),
+            "amount": _int(j.get("ret_amt")),
+            "mileage": _int(j.get("use_psb_mlg_num")),
+            "refundable": j.get("prg_psb_flg") == "Y",
+        }
 
     def refund(self, ticket):
         data = {

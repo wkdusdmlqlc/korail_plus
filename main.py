@@ -185,6 +185,7 @@ MUTED = (0.55, 0.58, 0.63, 1)
 ACCENT = (0.235, 0.863, 0.518, 1)
 PRIMARY = (0.0, 0.655, 0.345, 1)
 BRAND = (0.235, 0.863, 0.518, 1)  # 재시도 완료 강조(=ACCENT 톤)
+SAFE_TOP = 34  # 상단 상태바/노치 회피 여백(dp 단위 — 사용처에서 dp()로 변환)
 
 
 def _hex(color):
@@ -639,7 +640,13 @@ class SearchScreen(Base):
         super().__init__(**kw)
         from datetime import datetime, timedelta
         kst = datetime.now() + timedelta(hours=9)
-        root = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(14))
+        # 상태바 여백 + 스크롤: 내용이 길어 화면을 넘겨도 스크롤로 전부 보이게
+        outer = BoxLayout(orientation="vertical",
+                          padding=[dp(20), dp(SAFE_TOP), dp(20), dp(12)])
+        sv = ScrollView()
+        root = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(14),
+                         padding=[0, 0, 0, dp(16)])
+        root.bind(minimum_height=root.setter("height"))
         root.add_widget(header("열차 조회", "코레일+ · KTX"))
 
         stns = load_stations()
@@ -713,8 +720,9 @@ class SearchScreen(Base):
         self.btn = button("조회하기", self.do_search)
         root.add_widget(self.btn)
         root.add_widget(button("← 메뉴", lambda: self.manager.go("menu", "right"), "ghost", 46))
-        root.add_widget(Label())
-        self.add_widget(root)
+        sv.add_widget(root)
+        outer.add_widget(sv)
+        self.add_widget(outer)
 
     def on_pre_enter(self, *a):
         # 날짜 기준 시간 자동 설정(오늘=현재 시각, 이후=00:00:00)
@@ -810,7 +818,7 @@ class SearchScreen(Base):
 class ResultsScreen(Base):
     def __init__(self, **kw):
         super().__init__(**kw)
-        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
+        root = BoxLayout(orientation="vertical", padding=[dp(16), dp(SAFE_TOP), dp(16), dp(12)], spacing=dp(10))
         head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
         head.add_widget(button("←", lambda: self.manager.go("search", "right"), "ghost", 44))
         head.add_widget(label("[b]조회 결과[/b]", color=TXT, size="18sp", halign="left",
@@ -951,7 +959,7 @@ class SettingsScreen(Base):
     def __init__(self, **kw):
         super().__init__(**kw)
         s = load_settings()
-        root = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(12))
+        root = BoxLayout(orientation="vertical", padding=[dp(20), dp(SAFE_TOP), dp(20), dp(12)], spacing=dp(12))
         head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
         head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
         head.add_widget(label("[b]알림 설정[/b]", color=TXT, size="18sp", halign="left",
@@ -1028,7 +1036,8 @@ class JobsScreen(Base):
     def __init__(self, **kw):
         super().__init__(**kw)
         self._ev = None
-        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
+        root = BoxLayout(orientation="vertical",
+                         padding=[dp(16), dp(SAFE_TOP), dp(16), dp(12)], spacing=dp(10))
         head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
         head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
         head.add_widget(label("[b]자동 재시도 현황[/b]", color=TXT, size="18sp", halign="left",
@@ -1109,7 +1118,7 @@ class MenuScreen(Base):
     """로그인 후 허브 — TUI 메뉴 대응."""
     def __init__(self, **kw):
         super().__init__(**kw)
-        root = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(12))
+        root = BoxLayout(orientation="vertical", padding=[dp(20), dp(SAFE_TOP), dp(20), dp(12)], spacing=dp(12))
         root.add_widget(header("korail+", "메뉴"))
         self.hello = label("", color=MUTED, size="13sp", halign="left",
                            size_hint_y=None, height=dp(22),
@@ -1150,7 +1159,7 @@ class ReservationsScreen(Base):
     """예매 확인 / 결제 / 취소 / 환불."""
     def __init__(self, **kw):
         super().__init__(**kw)
-        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
+        root = BoxLayout(orientation="vertical", padding=[dp(16), dp(SAFE_TOP), dp(16), dp(12)], spacing=dp(10))
         head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
         head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
         head.add_widget(label("[b]예매 확인[/b]", color=TXT, size="18sp", halign="left",
@@ -1248,8 +1257,52 @@ class ReservationsScreen(Base):
             self._after(f"취소 오류: {e}")
 
     def _refund(self, ticket):
-        self.toast("환불 중…")
-        threading.Thread(target=self._refund_worker, args=(ticket,), daemon=True).start()
+        # 먼저 수수료를 조회해 팝업으로 보여주고, 확인 시에만 실제 환불
+        self.toast("환불 수수료 조회 중…")
+        threading.Thread(target=self._refund_fee_worker, args=(ticket,), daemon=True).start()
+
+    def _refund_fee_worker(self, ticket):
+        rail = App.get_running_app().rail
+        try:
+            info = rail.refund_fee(ticket)
+            self._show_fee_popup(ticket, info, None)
+        except Exception as e:  # noqa
+            self._show_fee_popup(ticket, None, str(e))
+
+    @mainthread
+    def _show_fee_popup(self, ticket, info, err):
+        box = BoxLayout(orientation="vertical", spacing=dp(14), padding=dp(16))
+        if err or info is None:
+            box.add_widget(label(f"수수료 조회 실패\n{err or ''}", color=TXT, size="15sp",
+                                 halign="center", valign="middle",
+                                 text_size=(Window.width * 0.7, None)))
+        elif not info.get("refundable"):
+            box.add_widget(label("이 승차권은 환불할 수 없습니다.", color=TXT, size="16sp",
+                                 halign="center", valign="middle",
+                                 text_size=(Window.width * 0.7, None)))
+        else:
+            fee, amt = info.get("fee", 0), info.get("amount", 0)
+            box.add_widget(label(
+                f"환불 수수료: [b][color=E05555]{fee:,}원[/color][/b]\n"
+                f"돌려받는 금액: [b][color={_hex(ACCENT)}]{amt:,}원[/color][/b]",
+                color=TXT, size="17sp", halign="center", valign="middle",
+                size_hint_y=None, height=dp(80), text_size=(Window.width * 0.7, None)))
+        btns = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
+        popup = Popup(title="환불 확인", content=box, size_hint=(0.88, None), height=dp(260),
+                      title_color=TXT, separator_color=ACCENT,
+                      background_color=(0.06, 0.07, 0.09, 1))
+        btns.add_widget(button("닫기", lambda: popup.dismiss(), "ghost", 50))
+        if info and info.get("refundable"):
+            def _do(*_):
+                popup.dismiss()
+                self.toast("환불 중…")
+                threading.Thread(target=self._refund_worker, args=(ticket,),
+                                 daemon=True).start()
+            rb = accent_button("환불하기", _do, 50)
+            rb.bg = (0.8, 0.26, 0.26, 1)
+            btns.add_widget(rb)
+        box.add_widget(btns)
+        popup.open()
 
     def _refund_worker(self, ticket):
         rail = App.get_running_app().rail
@@ -1270,7 +1323,7 @@ class CardScreen(Base):
     def __init__(self, **kw):
         super().__init__(**kw)
         c = load_card()
-        root = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(12))
+        root = BoxLayout(orientation="vertical", padding=[dp(20), dp(SAFE_TOP), dp(20), dp(12)], spacing=dp(12))
         head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
         head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
         head.add_widget(label("[b]카드 설정[/b]", color=TXT, size="18sp", halign="left",
@@ -1300,7 +1353,7 @@ class StationScreen(Base):
     """역 설정 — 역 추가/삭제."""
     def __init__(self, **kw):
         super().__init__(**kw)
-        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
+        root = BoxLayout(orientation="vertical", padding=[dp(16), dp(SAFE_TOP), dp(16), dp(12)], spacing=dp(10))
         head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
         head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
         head.add_widget(label("[b]역 설정[/b]", color=TXT, size="18sp", halign="left",
