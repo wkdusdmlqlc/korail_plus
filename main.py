@@ -226,62 +226,40 @@ def _save(path, data):
 
 
 # ---------- Android Keystore 기반 암호화 저장 (로그인/카드) ----------
-_KS_ALIAS = "korailplus_secret_v1"
+# 키 생성/암복호화는 Java 헬퍼(org.korailplus.SecureStore)가 전담한다.
 
 
-def _ks_key():
-    from jnius import autoclass
-    KeyStore = autoclass("java.security.KeyStore")
-    ks = KeyStore.getInstance("AndroidKeyStore")
-    ks.load(None)
-    if ks.containsAlias(_KS_ALIAS):
-        return ks.getKey(_KS_ALIAS, None)
-    KeyProperties = autoclass("android.security.keystore.KeyProperties")
-    Builder = autoclass("android.security.keystore.KeyGenParameterSpec$Builder")
-    b = Builder(_KS_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
-    b.setBlockModes([KeyProperties.BLOCK_MODE_GCM])
-    b.setEncryptionPaddings([KeyProperties.ENCRYPTION_PADDING_NONE])
-    b.setKeySize(256)
-    KeyGenerator = autoclass("javax.crypto.KeyGenerator")
-    kg = KeyGenerator.getInstance("AES", "AndroidKeyStore")
-    kg.init(b.build())
-    return kg.generateKey()
+def _secure_store():
+    """Java 헬퍼 org.korailplus.SecureStore 로드(안드로이드 전용). 실패 시 None."""
+    try:
+        from jnius import autoclass
+        return autoclass("org.korailplus.SecureStore")
+    except Exception:
+        return None
 
 
 def _ks_encrypt(text):
-    """평문 -> base64(ivlen|iv|ct). Keystore 불가 시 None.
+    """평문 -> base64 암호문. Keystore 불가(비안드로이드/오류) 시 None.
 
-    ⚠️ 현재 pyjnius Keystore 호출이 네이티브 abort(try/except로 못 막힘)를 일으켜
-    앱이 종료됨 → 안전을 위해 비활성화(평문 폴백). 정식 Keystore 연동은 재작업 필요.
+    모든 Keystore/Cipher 로직은 Java(SecureStore)에서 수행한다. pyjnius로
+    배열 인자를 마셜링하던 기존 방식이 네이티브 abort를 일으켜 앱을 종료시켰기
+    때문에, 파이썬은 encrypt/decrypt 호출만 담당한다.
     """
-    return None
-    try:  # noqa (아래 코드는 보류 — 네이티브 크래시 수정 후 활성화)
-        import base64
-        from jnius import autoclass
-        Cipher = autoclass("javax.crypto.Cipher")
-        c = Cipher.getInstance("AES/GCM/NoPadding")
-        c.init(1, _ks_key())  # ENCRYPT_MODE
-        iv = bytes([x & 0xFF for x in c.getIV()])
-        ct = bytes([x & 0xFF for x in c.doFinal(text.encode("utf-8"))])
-        return base64.b64encode(bytes([len(iv)]) + iv + ct).decode("ascii")
+    store = _secure_store()
+    if store is None:
+        return None
+    try:
+        return store.encrypt(text)  # 실패 시 Java가 null -> 파이썬 None
     except Exception:
         return None
 
 
 def _ks_decrypt(b64):
-    return None  # Keystore 비활성화(위 _ks_encrypt 참고) — 네이티브 크래시 방지
+    store = _secure_store()
+    if store is None:
+        return None
     try:
-        import base64
-        from jnius import autoclass
-        raw = base64.b64decode(b64)
-        ivlen = raw[0]
-        iv, ct = raw[1:1 + ivlen], raw[1 + ivlen:]
-        Cipher = autoclass("javax.crypto.Cipher")
-        GCMParameterSpec = autoclass("javax.crypto.spec.GCMParameterSpec")
-        c = Cipher.getInstance("AES/GCM/NoPadding")
-        c.init(2, _ks_key(), GCMParameterSpec(128, iv))  # DECRYPT_MODE
-        return bytes([x & 0xFF for x in c.doFinal(ct)]).decode("utf-8")
+        return store.decrypt(b64)
     except Exception:
         return None
 

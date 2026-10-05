@@ -22,6 +22,9 @@ p4a.branch = develop
 orientation = portrait
 fullscreen = 0
 
+# Android Keystore 암복호화 Java 헬퍼(SecureStore) — pyjnius 배열 마셜링 크래시 회피
+android.add_src = java
+
 # 백그라운드 자동 재시도 서비스 (Foreground Service)
 services = Korailretry:service.py:foreground
 
