@@ -42,6 +42,20 @@ jobs:
             zlib1g-dev libncurses-dev cmake libffi-dev libssl-dev \
             build-essential ccache git gettext libltdl-dev
 
+      - name: Restore fixed debug keystore
+        # 매 빌드 동일 서명 → 재설치 시 'adb install -r'로 데이터(ID/카드) 유지.
+        # 시크릿 미설정 시 기존처럼 CI가 임시 debug 키 자동 생성(서명 매번 달라짐).
+        env:
+          KS_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            mkdir -p ~/.android
+            echo "$KS_B64" | base64 -d > ~/.android/debug.keystore
+            echo "고정 debug.keystore 복원됨"
+          else
+            echo "시크릿 없음 — 자동 생성 debug 키 사용"
+          fi
+
       - name: Install buildozer
         run: |
           python -m pip install --upgrade pip
