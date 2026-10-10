@@ -1003,7 +1003,7 @@ class ResultsScreen(Base):
             brow.add_widget(Label())  # 가변 여백
             ib = button("즉시 예매", lambda tr=t: self._reserve(tr), "primary", 36)
             ib.font_size = "14sp"
-            rb = accent_button("재시도", lambda tr=t: self._retry([tr]), 36)
+            rb = accent_button("재시도", lambda tr=t: self._ask_seat_then_retry([tr]), 36)
             rb.font_size = "14sp"
             brow.add_widget(ib)
             brow.add_widget(rb)
@@ -1053,9 +1053,33 @@ class ResultsScreen(Base):
     def _retry_all(self):
         # 체크된 열차가 있으면 그것만, 없으면 전체로 재시도
         sel = self._selected_trains()
-        self._retry(sel if sel else self._trains)
+        self._ask_seat_then_retry(sel if sel else self._trains)
 
-    def _retry(self, trains):
+    def _ask_seat_then_retry(self, trains):
+        """재시도 전 좌석 종류(일반실/특실)를 팝업으로 선택."""
+        if not trains:
+            self.toast("열차가 없습니다")
+            return
+        box = BoxLayout(orientation="vertical", spacing=dp(14), padding=dp(16))
+        box.add_widget(label("어떤 좌석으로 재시도할까요?", color=TXT, size="16sp",
+                             halign="center", valign="middle", size_hint_y=None, height=dp(40),
+                             text_size=(Window.width * 0.7, None)))
+        btns = BoxLayout(size_hint_y=None, height=dp(54), spacing=dp(10))
+        popup = Popup(title="좌석 선택", content=box, size_hint=(0.86, None), height=dp(200),
+                      title_color=TXT, separator_color=ACCENT,
+                      background_color=(0.06, 0.07, 0.09, 1))
+
+        def choose(opt):
+            popup.dismiss()
+            self._retry(trains, option=opt)
+        gb = accent_button("일반실", lambda: choose(ReserveOption.GENERAL_ONLY), 54)
+        sb = button("특실", lambda: choose(ReserveOption.SPECIAL_ONLY), "primary", 54)
+        btns.add_widget(gb)
+        btns.add_widget(sb)
+        box.add_widget(btns)
+        popup.open()
+
+    def _retry(self, trains, option=None):
         s = load_settings()
         creds = load_creds()
         card = load_card()
@@ -1067,7 +1091,7 @@ class ResultsScreen(Base):
             "adult": self._params.get("adult", 1), "child": self._params.get("child", 0),
             "senior": self._params.get("senior", 0), "dis13": self._params.get("dis13", 0),
             "dis46": self._params.get("dis46", 0),
-            "option": self._option,  # ReserveOption 값 == 문자열
+            "option": option or self._option,  # 팝업 선택 좌석 우선, 없으면 조회 옵션
             "train_nos": [t.train_no for t in trains],
             "interval": self._params.get("interval", "3"),
             "notify": notify, "tg_token": s.get("tg_token", ""), "tg_chat": s.get("tg_chat", ""),
