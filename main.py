@@ -1084,10 +1084,20 @@ class ResultsScreen(Base):
         creds = load_creds()
         card = load_card()
         notify = s.get("notify", "android") if s.get("enabled", True) else "none"
+        dep, arr = self._params["dep"], self._params["arr"]
+        d = self._params["date"]
+        date_disp = f"{d[4:6]}/{d[6:8]}" if len(d) == 8 else d
+        # 재시도 대상 열차의 '실제 출발 시각'으로 라벨 구성(조회 조건 시간 아님)
+        times = [f"{t.dep_time[:2]}:{t.dep_time[2:4]}" for t in trains]
+        if len(times) == 1:
+            label = f"{dep}→{arr} {date_disp} {times[0]} 출발"
+        else:
+            label = f"{dep}→{arr} {date_disp} {times[0]} 외 {len(times) - 1}개"
         job = {
             "id": creds.get("id"), "pass": creds.get("pass"),
-            "dep": self._params["dep"], "arr": self._params["arr"],
+            "dep": dep, "arr": arr,
             "date": self._params["date"], "time": self._params["time"],
+            "label": label,  # 현황에 표시할 라벨(열차 출발시각 기준)
             "adult": self._params.get("adult", 1), "child": self._params.get("child", 0),
             "senior": self._params.get("senior", 0), "dis13": self._params.get("dis13", 0),
             "dis46": self._params.get("dis46", 0),
@@ -1248,7 +1258,8 @@ class JobsScreen(Base):
             card.size_hint_y = None
             # 내용(제목24+상태24+메시지22+버튼34) + Card 패딩32 + 간격18 = 154
             card.height = dp(154)
-            route = st.get("route") or f'{job.get("dep")}→{job.get("arr")} {job.get("date","")}'
+            route = (st.get("route") or job.get("label")
+                     or f'{job.get("dep")}→{job.get("arr")} {job.get("date","")}')
             card.add_widget(label(f"[b]{route}[/b]", size="15sp", halign="left", valign="middle",
                                   size_hint_y=None, height=dp(24),
                                   text_size=(Window.width - dp(64), None)))

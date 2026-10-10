@@ -174,6 +174,9 @@ def _pay(rail, job, rsv):
 
 # ---------- 상태 ----------
 def _route_label(job):
+    # GUI가 넣어준 라벨(열차 실제 출발시각 기준) 우선
+    if job.get("label"):
+        return job["label"]
     return f'{job.get("dep","?")}→{job.get("arr","?")} {job.get("date","")} {job.get("time","")[:4]}'
 
 
