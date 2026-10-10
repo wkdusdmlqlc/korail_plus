@@ -1211,6 +1211,8 @@ class JobsScreen(Base):
     _STATE_LABEL = {"searching": ("재시도 중", MUTED), "partial": ("일부 확보", ACCENT),
                     "done": ("✅ 완료", BRAND), "error": ("⚠ 오류", (0.88, 0.33, 0.33, 1)),
                     "login": ("로그인 중", MUTED)}
+    _SEAT_LABEL = {"GENERAL_FIRST": "일반실 우선", "GENERAL_ONLY": "일반실만",
+                   "SPECIAL_FIRST": "특실 우선", "SPECIAL_ONLY": "특실만"}
 
     def __init__(self, **kw):
         super().__init__(**kw)
@@ -1268,7 +1270,9 @@ class JobsScreen(Base):
             stext, scolor = self._STATE_LABEL.get(state, (state, MUTED))
             booked = len(st.get("booked", []))
             total = st.get("total", "")
-            head2 = f"[color={_hex(scolor)}]{stext}[/color]   확보 {booked}/{total}"
+            seat = self._SEAT_LABEL.get(job.get("option", ""), "")
+            seat_txt = f"   [color={_hex(MUTED)}]{seat}[/color]" if seat else ""
+            head2 = f"[color={_hex(scolor)}]{stext}[/color]   확보 {booked}/{total}{seat_txt}"
             card.add_widget(label(head2, size="14sp", halign="left", valign="middle",
                                   size_hint_y=None, height=dp(24),
                                   text_size=(Window.width - dp(64), None)))
