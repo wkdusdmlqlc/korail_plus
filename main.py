@@ -823,8 +823,7 @@ class SearchScreen(Base):
         prow2.add_widget(self.dis46)
         prow2.add_widget(Label())
         root.add_widget(prow2)
-        self.seat = pick("일반실 우선", list(SEAT_OPTIONS))
-        root.add_widget(self.seat)
+        # 좌석 종류는 즉시예매/재시도 누를 때 팝업으로 선택(조회 화면에서 제거)
         irow = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
         irow.add_widget(label("재시도 간격(초)", color=MUTED, size_hint_x=None, width=dp(110)))
         self.interval = pick("3", ["1", "2", "3", "5", "10", "30"])
@@ -938,7 +937,7 @@ class SearchScreen(Base):
         if not trains:
             self.toast("조회 결과가 없습니다")
             return
-        self.manager.get_screen("results").populate(trains, self.seat.text, params)
+        self.manager.get_screen("results").populate(trains, params)
         self.manager.go("results")
 
 
@@ -962,9 +961,8 @@ class ResultsScreen(Base):
         root.add_widget(self.retry_all)
         self.add_widget(root)
 
-    def populate(self, trains, seat_text, params):
-        self._seat_text = seat_text
-        self._option = SEAT_OPTIONS[seat_text]
+    def populate(self, trains, params):
+        self._option = ReserveOption.GENERAL_FIRST  # 폴백(실제 좌석은 팝업에서 선택)
         self._params = params
         self._trains = trains
         self._checks = []  # (train, checkbox) — 선택 재시도용
@@ -1003,7 +1001,7 @@ class ResultsScreen(Base):
             brow.add_widget(Label())  # 가변 여백
             ib = button("즉시 예매", lambda tr=t: self._reserve(tr), "primary", 36)
             ib.font_size = "14sp"
-            rb = accent_button("재시도", lambda tr=t: self._ask_seat_then_retry([tr]), 36)
+            rb = accent_button("재시도", lambda tr=t: self._retry_pick([tr]), 36)
             rb.font_size = "14sp"
             brow.add_widget(ib)
             brow.add_widget(rb)
@@ -1018,15 +1016,37 @@ class ResultsScreen(Base):
         self.retry_all.text = (f"선택한 {n}개 열차로 자동 재시도 시작" if n
                                else "전체 열차로 자동 재시도 시작")
 
-    def _reserve(self, train):
-        self.toast("예매 시도 중…")
-        threading.Thread(target=self._reserve_work, args=(train,), daemon=True).start()
+    def _choose_seat(self, on_pick):
+        """좌석 종류 선택 팝업(4지선다). 선택 시 on_pick(ReserveOption)."""
+        box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(16))
+        box.add_widget(label("좌석 종류를 선택하세요", color=TXT, size="16sp",
+                             halign="center", valign="middle", size_hint_y=None, height=dp(34),
+                             text_size=(Window.width * 0.72, None)))
+        popup = Popup(title="좌석 선택", content=box, size_hint=(0.86, None), height=dp(360),
+                      title_color=TXT, separator_color=ACCENT,
+                      background_color=(0.06, 0.07, 0.09, 1))
+        opts = [("일반실 우선", ReserveOption.GENERAL_FIRST),
+                ("일반실만", ReserveOption.GENERAL_ONLY),
+                ("특실 우선", ReserveOption.SPECIAL_FIRST),
+                ("특실만", ReserveOption.SPECIAL_ONLY)]
+        for text, opt in opts:
+            b = button(text, None, "ghost", 50)
+            b.bind(on_release=lambda _w, o=opt: (popup.dismiss(), on_pick(o)))
+            box.add_widget(b)
+        popup.open()
 
-    def _reserve_work(self, train):
+    def _reserve(self, train):
+        self._choose_seat(lambda opt: self._start_reserve(train, opt))
+
+    def _start_reserve(self, train, option):
+        self.toast("예매 시도 중…")
+        threading.Thread(target=self._reserve_work, args=(train, option), daemon=True).start()
+
+    def _reserve_work(self, train, option):
         app = App.get_running_app()
         try:
             rsv = app.rail.reserve(train, passengers=self._params["passengers"],
-                                   option=self._option)
+                                   option=option)
             if rsv:
                 msg = f"예매 성공! {rsv}"
                 # 자동 결제 옵션 + 카드 등록 시 바로 결제
@@ -1053,31 +1073,14 @@ class ResultsScreen(Base):
     def _retry_all(self):
         # 체크된 열차가 있으면 그것만, 없으면 전체로 재시도
         sel = self._selected_trains()
-        self._ask_seat_then_retry(sel if sel else self._trains)
+        self._retry_pick(sel if sel else self._trains)
 
-    def _ask_seat_then_retry(self, trains):
-        """재시도 전 좌석 종류(일반실/특실)를 팝업으로 선택."""
+    def _retry_pick(self, trains):
+        """재시도 전 좌석 종류를 팝업(4지선다)으로 선택."""
         if not trains:
             self.toast("열차가 없습니다")
             return
-        box = BoxLayout(orientation="vertical", spacing=dp(14), padding=dp(16))
-        box.add_widget(label("어떤 좌석으로 재시도할까요?", color=TXT, size="16sp",
-                             halign="center", valign="middle", size_hint_y=None, height=dp(40),
-                             text_size=(Window.width * 0.7, None)))
-        btns = BoxLayout(size_hint_y=None, height=dp(54), spacing=dp(10))
-        popup = Popup(title="좌석 선택", content=box, size_hint=(0.86, None), height=dp(200),
-                      title_color=TXT, separator_color=ACCENT,
-                      background_color=(0.06, 0.07, 0.09, 1))
-
-        def choose(opt):
-            popup.dismiss()
-            self._retry(trains, option=opt)
-        gb = accent_button("일반실", lambda: choose(ReserveOption.GENERAL_ONLY), 54)
-        sb = button("특실", lambda: choose(ReserveOption.SPECIAL_ONLY), "primary", 54)
-        btns.add_widget(gb)
-        btns.add_widget(sb)
-        box.add_widget(btns)
-        popup.open()
+        self._choose_seat(lambda opt: self._retry(trains, option=opt))
 
     def _retry(self, trains, option=None):
         s = load_settings()
