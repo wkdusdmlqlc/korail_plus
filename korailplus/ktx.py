@@ -27,7 +27,7 @@ from functools import reduce
 
 # 핫패치(자동 업데이트) 버전 표식 — 코레일 API 변경 대응 시 이 값을 올리면
 # 앱이 GitHub raw에서 새 ktx.py를 받아 재설치 없이 반영한다. 형식: YYYYMMDD[NN]
-__version__ = "20261007"
+__version__ = "20261008"
 
 # Constants
 EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
@@ -849,10 +849,12 @@ class Korail:
 
         if j["strResult"] == "SUCC" and j.get("strMbCrdNo"):
             # self._key = j['Key']
+            # 선택 필드는 .get()으로 안전 접근 — 하나라도 없을 때 KeyError로
+            # 로그인이 실패(strCustNm 에러)하던 문제 방지(이름/이메일/전화는 표시용).
             self.membership_number = j["strMbCrdNo"]
-            self.name = j["strCustNm"]
-            self.email = j["strEmailAdr"]
-            self.phone_number = j["strCpNo"]
+            self.name = j.get("strCustNm") or ""
+            self.email = j.get("strEmailAdr") or ""
+            self.phone_number = j.get("strCpNo") or ""
             print(
                 f"로그인 성공: {self.name} (멤버십번호: {self.membership_number}, 전화번호: {self.phone_number})"
             )

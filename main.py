@@ -23,6 +23,11 @@ def _log_crash(exc_type, exc, tb):
 
 sys.excepthook = _log_crash
 
+# 시스템 "큰 글꼴"(fontscale)을 따르지 않도록 고정 — sp 폰트가 커져 레이아웃이
+# 넘치고 글씨가 잘리던 문제 방지. (density는 그대로 두어 해상도별 크기는 유지)
+# 반드시 kivy import 전에 설정해야 적용됨.
+os.environ.setdefault("KIVY_METRICS_FONTSCALE", "1")
+
 # --- 한글 폰트를 Kivy 기본 폰트("Roboto") 이름으로 등록 → 모든 위젯에 적용 ---
 from kivy.core.text import LabelBase
 
