@@ -1087,12 +1087,9 @@ class ResultsScreen(Base):
         dep, arr = self._params["dep"], self._params["arr"]
         d = self._params["date"]
         date_disp = f"{d[4:6]}/{d[6:8]}" if len(d) == 8 else d
-        # 재시도 대상 열차의 '실제 출발 시각'으로 라벨 구성(조회 조건 시간 아님)
+        # 재시도 대상 열차의 '실제 출발 시각'을 모두 표시(조회 조건 시간 아님)
         times = [f"{t.dep_time[:2]}:{t.dep_time[2:4]}" for t in trains]
-        if len(times) == 1:
-            label = f"{dep}→{arr} {date_disp} {times[0]} 출발"
-        else:
-            label = f"{dep}→{arr} {date_disp} {times[0]} 외 {len(times) - 1}개"
+        label = f"{dep}→{arr} {date_disp} · " + ", ".join(times)
         job = {
             "id": creds.get("id"), "pass": creds.get("pass"),
             "dep": dep, "arr": arr,
@@ -1256,13 +1253,14 @@ class JobsScreen(Base):
             st = statuses.get(job.get("jid"), {})
             card = Factory.Card()
             card.size_hint_y = None
-            # 내용(제목24+상태24+메시지22+버튼34) + Card 패딩32 + 간격18 = 154
-            card.height = dp(154)
+            # 내용에 맞춰 카드 높이 자동(출발 시각이 여러 줄이면 늘어남)
+            card.bind(minimum_height=card.setter("height"))
             route = (st.get("route") or job.get("label")
                      or f'{job.get("dep")}→{job.get("arr")} {job.get("date","")}')
-            card.add_widget(label(f"[b]{route}[/b]", size="15sp", halign="left", valign="middle",
-                                  size_hint_y=None, height=dp(24),
-                                  text_size=(Window.width - dp(64), None)))
+            rl = label(f"[b]{route}[/b]", size="15sp", halign="left", valign="top",
+                       size_hint_y=None, text_size=(Window.width - dp(64), None))
+            rl.bind(texture_size=lambda w, ts: setattr(w, "height", ts[1]))
+            card.add_widget(rl)
             state = st.get("state", "searching")
             stext, scolor = self._STATE_LABEL.get(state, (state, MUTED))
             booked = len(st.get("booked", []))
