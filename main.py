@@ -60,6 +60,7 @@ Disability1To3Passenger = _K.Disability1To3Passenger
 Disability4To6Passenger = _K.Disability4To6Passenger
 Korail = _K.Korail
 KorailError = _K.KorailError
+NeedToLoginError = _K.NeedToLoginError
 ReserveOption = _K.ReserveOption
 SoldOutError = _K.SoldOutError
 
@@ -1375,6 +1376,15 @@ class ReservationsScreen(Base):
             reservations = rail.reservations() or []
             tickets = rail.tickets() or []
             err = None
+        except NeedToLoginError:
+            # 세션 만료(P058) → 저장된 자격증명으로 재로그인 후 1회 재시도
+            try:
+                rail.login()
+                reservations = rail.reservations() or []
+                tickets = rail.tickets() or []
+                err = None
+            except Exception as e:  # noqa
+                reservations, tickets, err = [], [], f"재로그인 필요: {e}"
         except Exception as e:  # noqa
             reservations, tickets, err = [], [], str(e)
         self._render(reservations, tickets, err)
