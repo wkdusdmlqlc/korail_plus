@@ -1310,6 +1310,118 @@ class JobsScreen(Base):
         self._render()
 
 
+class SpecialOfferScreen(Base):
+    """특가·할인 상품 조회 (맘편한 코레일/다자녀/청소년드림 등).
+
+    예매는 전용 플로우(passOtrReserve)가 AppSuit 암호화로 막혀 지원하지 않는다.
+    상품 안내·할인조건·이용방법을 서버에서 받아 보여주는 '조회' 기능.
+    """
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        root = BoxLayout(orientation="vertical",
+                         padding=[dp(16), dp(SAFE_TOP), dp(16), dp(12)], spacing=dp(10))
+        head = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
+        head.add_widget(button("←", lambda: self.manager.go("menu", "right"), "ghost", 44))
+        head.add_widget(label("[b]특가·할인 상품[/b]", color=TXT, size="18sp", halign="left",
+                              valign="middle"))
+        root.add_widget(head)
+        sv = ScrollView()
+        self.list = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10),
+                              padding=[0, dp(6)])
+        self.list.bind(minimum_height=self.list.setter("height"))
+        sv.add_widget(self.list)
+        root.add_widget(sv)
+        self.add_widget(root)
+
+    def on_pre_enter(self, *a):
+        self.list.clear_widgets()
+        self.list.add_widget(label("불러오는 중…", color=MUTED, size_hint_y=None, height=dp(40),
+                                   halign="center", text_size=(Window.width - dp(48), None)))
+        if not App.get_running_app().rail:
+            return self._render([], "로그인이 필요합니다")
+        threading.Thread(target=self._load, daemon=True).start()
+
+    def _load(self):
+        rail = App.get_running_app().rail
+        try:
+            items = rail.special_offers("1") or []
+            err = None
+        except NeedToLoginError:
+            try:
+                rail.login(); items = rail.special_offers("1") or []; err = None
+            except Exception as e:  # noqa
+                items, err = [], f"세션 오류: {e}"
+        except Exception as e:  # noqa
+            items, err = [], str(e)
+        self._render(items, err)
+
+    @mainthread
+    def _render(self, items, err):
+        self.list.clear_widgets()
+        if err:
+            self.list.add_widget(label(f"오류: {err}", color=MUTED, size_hint_y=None,
+                                       height=dp(40), halign="center",
+                                       text_size=(Window.width - dp(48), None)))
+            return
+        if not items:
+            self.list.add_widget(label("특가 상품이 없습니다", color=MUTED, size_hint_y=None,
+                                       height=dp(40), halign="center",
+                                       text_size=(Window.width - dp(48), None)))
+            return
+        for it in items:
+            typ = it.get("type")
+            title = it.get("title", "")
+            if typ == "category":
+                self.list.add_widget(label(f"[b]{title}[/b]", color=ACCENT, size="16sp",
+                                           size_hint_y=None, height=dp(34), halign="left",
+                                           valign="middle",
+                                           text_size=(Window.width - dp(48), None)))
+                continue
+            card = Factory.Card()
+            card.size_hint_y = None
+            card.bind(minimum_height=card.setter("height"))
+            tl = label(f"[b]{title}[/b]", size="15sp", halign="left", valign="top",
+                       size_hint_y=None, text_size=(Window.width - dp(64), None))
+            tl.bind(texture_size=lambda w, ts: setattr(w, "height", ts[1]))
+            card.add_widget(tl)
+            desc = it.get("dtlDsc") or ""
+            if desc:
+                dl = label(desc, color=MUTED, size="13sp", halign="left", valign="top",
+                           size_hint_y=None, text_size=(Window.width - dp(64), None))
+                dl.bind(texture_size=lambda w, ts: setattr(w, "height", ts[1]))
+                card.add_widget(dl)
+            seg = ""
+            if it.get("repSegDpt") and it.get("repSegArv"):
+                seg = f"[color={_hex(ACCENT)}]{it['repSegDpt']}→{it['repSegArv']}[/color]  "
+            info = it.get("information") or ""
+            if seg or info:
+                btn = button("자세히 보기", lambda x=it: self._detail(x), "ghost", 40)
+                card.add_widget(btn)
+            self.list.add_widget(card)
+
+    def _detail(self, it):
+        body = ""
+        for key in ("information", "agree"):
+            if it.get(key):
+                body += it[key] + "\n\n"
+        gd = it.get("goodsData") or {}
+        if gd.get("h_cnd_flg_disc_no"):
+            body += f"[할인상품번호] {gd['h_cnd_flg_disc_no']}"
+        sv = ScrollView()
+        lbl = label(body.strip() or "안내 정보가 없습니다", color=TXT, size="13sp",
+                    halign="left", valign="top", size_hint_y=None)
+        lbl.text_size = (Window.width * 0.8, None)
+        lbl.bind(texture_size=lambda w, ts: setattr(w, "height", ts[1]))
+        sv.add_widget(lbl)
+        box = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        box.add_widget(sv)
+        popup = Popup(title=it.get("title", "안내"), content=box, size_hint=(0.92, 0.8),
+                      title_color=TXT, separator_color=ACCENT,
+                      background_color=(0.06, 0.07, 0.09, 1))
+        box.add_widget(button("닫기", lambda: popup.dismiss(), "ghost", 46))
+        popup.open()
+
+
 class MenuScreen(Base):
     """로그인 후 허브 — TUI 메뉴 대응."""
     def __init__(self, **kw):
@@ -1323,6 +1435,7 @@ class MenuScreen(Base):
         items = [
             ("🚆  예매 시작", lambda: self.manager.go("search")),
             ("🔄  자동 재시도 현황", lambda: self.manager.go("jobs")),
+            ("🎁  특가·할인 상품 (맘편한 등)", lambda: self.manager.go("offers")),
             ("🎫  예매 확인 / 결제 / 취소", lambda: self._open_reservations()),
             ("💳  카드 설정", lambda: self.manager.go("card")),
             ("🚉  역 설정", lambda: self.manager.go("station")),
@@ -1683,6 +1796,7 @@ class KorailPlusApp(App):
         sm.add_widget(StationScreen(name="station"))
         sm.add_widget(SettingsScreen(name="settings"))
         sm.add_widget(JobsScreen(name="jobs"))
+        sm.add_widget(SpecialOfferScreen(name="offers"))
         sm.current = "login"  # 항상 로그인 화면으로 시작
         request_notification_permission()  # 알림 권한(Android 13+) 요청
         ensure_station_master_async()  # 코레일 역 마스터 캐시 백그라운드 준비

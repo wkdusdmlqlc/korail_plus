@@ -27,7 +27,7 @@ from functools import reduce
 
 # 핫패치(자동 업데이트) 버전 표식 — 코레일 API 변경 대응 시 이 값을 올리면
 # 앱이 GitHub raw에서 새 ktx.py를 받아 재설치 없이 반영한다. 형식: YYYYMMDD[NN]
-__version__ = "20261008"
+__version__ = "20261009"
 
 # Constants
 EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
@@ -216,6 +216,7 @@ API_ENDPOINTS = {
     "pay": f"{KORAIL_MOBILE}.payment.ReservationPayment",
     "refund": f"{KORAIL_MOBILE}.refunds.RefundsRequest",
     "refund_commission": f"{KORAIL_MOBILE}.refunds.CommissionView",  # 환불 수수료 사전조회
+    "pass_menu": f"{KORAIL_MOBILE}.pass.passMenu.do",  # 특가·할인상품 목록(맘편한 등)
     "code": f"{KORAIL_MOBILE}.common.code.do",
 }
 
@@ -1203,6 +1204,26 @@ class Korail:
         self._log(r.text)
         j = json.loads(r.text)
         return self._result_check(j)
+
+    def special_offers(self, menu_no="1"):
+        """특가·할인상품 목록 조회(맘편한 코레일/다자녀/청소년드림 등). 로그인 필요.
+
+        menuNo=1: 특가상품, 2: 자유여행패스. 반환은 서버 list(카테고리+goods 혼합).
+        각 goods 항목의 goodsData에 할인번호(h_cnd_flg_disc_no)·안내문이 들어있다.
+        """
+        data = {
+            "Device": self._device,
+            "Version": self._version,
+            "Key": self._key,
+            "AppVersion": self._app_version,
+            "menuNo": menu_no,
+        }
+        r = self._session.post(API_ENDPOINTS["pass_menu"], data=data)
+        self._log(r.text)
+        j = json.loads(r.text)
+        if j.get("strResult") == "FAIL":
+            return []
+        return j.get("list", [])
 
     def refund_fee(self, ticket):
         """환불 수수료를 사전 조회(환불하지 않음). dict 반환.
