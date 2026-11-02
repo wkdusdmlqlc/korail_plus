@@ -27,7 +27,7 @@ from functools import reduce
 
 # 핫패치(자동 업데이트) 버전 표식 — 코레일 API 변경 대응 시 이 값을 올리면
 # 앱이 GitHub raw에서 새 ktx.py를 받아 재설치 없이 반영한다. 형식: YYYYMMDD[NN]
-__version__ = "20261009"
+__version__ = "20261010"
 
 # Constants
 EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
@@ -1001,6 +1001,7 @@ class Korail:
             "Key": self._key,
             "txtMenuId": "11",
             "txtJobId": "1101" if reserving_seat else "1102",
+            "txtGdNo": "",  # 코레일+ 7.0.8 TicketReservationIn 필수(일반예매는 빈값). APK·pykorail 확인
             "hidFreeFlg": "N",
             "txtStndFlg": "N",
             "txtTotPsgCnt": cnt,
