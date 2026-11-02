@@ -13,11 +13,15 @@ try:
 except ImportError:
     import requests
     HAS_CURL_CFFI = False
+import hashlib
 import itertools
 import json
+import math
 import random
 import re
+import secrets
 import string
+import struct
 import time
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
@@ -27,7 +31,7 @@ from functools import reduce
 
 # 핫패치(자동 업데이트) 버전 표식 — 코레일 API 변경 대응 시 이 값을 올리면
 # 앱이 GitHub raw에서 새 ktx.py를 받아 재설치 없이 반영한다. 형식: YYYYMMDD[NN]
-__version__ = "20261010"
+__version__ = "20261011"
 
 # Constants
 EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
@@ -163,6 +167,81 @@ class DynaPathMasterEngine:
         custom_table = self.make_encode_table(big_key, self.I9, self.TABLE)
         body_enc = self.encode_normal_be(plaintext, custom_table, self.I8, self.I9, self.I10)
         return f"bEeEP{self.TABLE[len(key_enc)]}{key_enc}{body_enc}"
+
+
+class DynaPathDeclarationEngine:
+    """DynaPath 선언 토큰 v2 (코레일+ 7.0.10, SDK 2.0.1) — '201…' 토큰.
+
+    7.0.8의 DynaPathMasterEngine('bEeEP…')은 서버의 최신버전 게이트에 막힌다.
+    7.0.10 네이티브 declarationToken 코덱을 순수파이썬으로 재현(pykorail 역분석):
+      201 + base62워드( LE32(nonce) ‖ MAC3 ‖ eor ),
+      eor = 봉투평문 XOR 키스트림, 키스트림 = SHA256(SECRET‖LE32(nonce)‖BE32(block)),
+      MAC3 = SHA256(SECRET‖LE32(nonce)‖eor)[:3].
+    실서버 로그인(DynaPath 보호 경로)으로 수용 확인됨.
+    """
+    SECRET = b"9a330fd663b62c5f888a7ce76ac7202d93f646b4e0bd605cd4183278ca4ca888"
+    ALPHABET = "TeFOuQBxj1qRUHwKkymSY8l3psvCzAL5tofNcihg9WDG072EZ4bVad6rJnPXIM"
+    PREFIX = "201"
+    SDK_VERSION = "2.0.1"
+    APP_ID = "korailplus"
+    OP_ID = 288904575606514493  # 소프트웨어 선언 op (엔드포인트 공통)
+    KL = "990094375841594426"
+    EC = "978212327729758430"
+    # 기기 사실(봉투) — board 정합 한 대(Galaxy S23, SM-S911N/kalama/Android15)
+    RELEASE = b"15"
+    MODEL = b"SM-S911N"
+    MANUFACTURER = b"samsung"
+    BOARD = b"kalama"
+    SDK_INT = 35
+    STRONGBOX = 1
+
+    @staticmethod
+    def _b64(raw):
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    def _keystream(self, nbytes, nonce):
+        blocks = math.ceil(nbytes / 32)
+        nonce_le = struct.pack("<I", nonce)
+        chunks = [
+            hashlib.sha256(self.SECRET + nonce_le + struct.pack(">I", b)).digest()
+            for b in range(blocks)
+        ]
+        return b"".join(chunks)[:nbytes]
+
+    @staticmethod
+    def _width(nbytes):
+        return math.ceil(nbytes * 8 / math.log2(62))
+
+    def _b62_word(self, value, width):
+        out = [self.ALPHABET[0]] * width
+        for i in range(width - 1, -1, -1):
+            out[i] = self.ALPHABET[value % 62]
+            value //= 62
+        return "".join(out)
+
+    def generate_token(self, device_id, ts_ms, nonce=None):
+        if nonce is None:
+            nonce = secrets.randbits(32)
+        aid = (device_id or "").encode("ascii")  # iid = android_id 문자열의 UTF-8 바이트
+        envelope = (
+            f"!v=2&es={self.OP_ID}&ts={ts_ms}&st=Android&sv={self.SDK_VERSION}&ai={self.APP_ID}"
+            f"&os={self._b64(self.RELEASE)}&dm={self._b64(self.MODEL)}&iid={self._b64(aid)}"
+            f"&mf={self._b64(self.MANUFACTURER)}&bd={self._b64(self.BOARD)}"
+            f"&sl={self.SDK_INT}&sb={self.STRONGBOX}&kl={self.KL}&ec={self.EC}"
+        ).encode("latin1")
+        keystream = self._keystream(len(envelope), nonce)
+        eor = bytes(p ^ k for p, k in zip(envelope, keystream))
+        mac3 = hashlib.sha256(self.SECRET + struct.pack("<I", nonce) + eor).digest()[:3]
+        buffer = struct.pack("<I", nonce) + mac3 + eor
+        body = [
+            self._b62_word(
+                int.from_bytes(buffer[i:i + 4], "big"), self._width(len(buffer[i:i + 4]))
+            )
+            for i in range(0, len(buffer), 4)
+        ]
+        return self.PREFIX + "".join(body)
+
+
 def fetch_stations(timeout=15):
     """코레일 역 마스터 전체를 조회해 역 이름 목록을 반환(주요역 우선 정렬).
 
@@ -722,10 +801,10 @@ class Korail:
             self._session = requests.session()
         self._session.headers.update(DEFAULT_HEADERS)
         self._netfunnel = NetFunnelHelper()
-        self._engine = DynaPathMasterEngine()
+        self._engine = DynaPathDeclarationEngine()  # 7.0.10 '201' 토큰(구 bEeEP 게이트 회피)
         self._device = "AD"
-        self._version = "250601003"  # 코레일톡 7.0.8 API 계약 버전 (구 250601002)
-        self._app_version = "7.0.8"  # CommonIn.AppVersion
+        self._version = "250722001"  # 코레일+ 7.0.10 API 계약 버전 (구 250601003)
+        self._app_version = "7.0.10"  # CommonIn.AppVersion (서버 최신버전 게이트)
         # lang(CommonIn.lang)은 앱 내부값이 보호돼 있어 추측하지 않고 생략한다.
         self._key = "korail1234567890"
         self._idx = None
@@ -754,13 +833,8 @@ class Korail:
         sid = None
         if any(path in url for path in DYNAPATH_PATHS):
             ts = int(time.time() * 1000)
-            # DynaPath v1.0.3: 4자리 난수는 대소문자+숫자(base62)에서 추출
-            rand = "".join(
-                random.choices(
-                    string.ascii_lowercase + string.ascii_uppercase + string.digits, k=4
-                )
-            )
-            token = self._engine.generate_token(self._device_id, ts, rand)
+            # DynaPath v2(7.0.10): 봉투 암호화 + base62. nonce는 요청마다 난수.
+            token = self._engine.generate_token(self._device_id, ts)
             headers["x-dynapath-m-token"] = token
             sid = self._generate_sid(ts)
         return headers, sid
